@@ -19,7 +19,7 @@
 * bash audit, capture bash command for Host Security Audit.
 * mysql query SQL audit, support mysqld 5.6\5.7\8.0, and mariadDB.
 
-# eCapture Architecure
+# eCapture Architecture
 ![](./images/ecapture-architecture.png)
 
 # eCapture User Manual
@@ -84,7 +84,7 @@ ps -ef | grep foo
 ## uprobe HOOK
 
 ### openssl\libressl\boringssl hook
-eCapture hook`SSL_write` \ `SSL_read` function of shared library `/lib/x86_64-linux-gnu/libssl.so.1.1`. get text context, and send message to user space by eBPM map.
+eCapture hook`SSL_write` \ `SSL_read` function of shared library `/lib/x86_64-linux-gnu/libssl.so.1.1`. get text context, and send message to user space by [eBPF maps](https://www.kernel.org/doc/html/latest/bpf/maps.html).
 ```go
 Probes: []*manager.Probe{
     {
