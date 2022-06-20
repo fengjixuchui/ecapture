@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/setup-go@v3
         with:
-          go-version: '1.16.14'
+          go-version: '1.17.4'
       - name: Install Compilers
         run: |
           sudo apt-get update
@@ -24,11 +24,17 @@ jobs:
             sudo ln -s /usr/bin/$tool-12 /usr/bin/$tool
           done
         shell: bash
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Build
-        run: make clean & make all
+        run: |
+          make clean
+          make env
+          make
       - name: Build NOCORE
-        run: make clean & make nocore
+        run: |
+          make clean
+          make env
+          make nocore
       - name: Test
         run: go test -v ./...
 
@@ -38,7 +44,7 @@ jobs:
     steps:
       - uses: actions/setup-go@v3
         with:
-          go-version: '1.18.3'
+          go-version: '1.17.4'
       - name: Install Compilers
         run: |
           sudo apt-get update
@@ -49,11 +55,17 @@ jobs:
             sudo ln -s /usr/bin/$tool-14 /usr/bin/$tool
           done
         shell: bash
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Build
-        run: make clean & make all
+        run: |
+          make clean
+          make env
+          make
       - name: Build NOCORE
-        run: make clean & make nocore
+        run: |
+          make clean
+          make env
+          make nocore
       - name: Test
         run: go test -v ./...
 
@@ -67,9 +79,21 @@ jobs:
           - arch: aarch64
             distro: ubuntu22.04
     steps:
-      - uses: actions/checkout@v2.1.0
+      - uses: actions/checkout@v3
+        with:
+          set-safe-directory: '/source_code'
       - name: Branch Name
-        run: echo running on branch ${{ github.ref_name }}
+        run: |
+          echo running on branch ${{ github.ref_name }}
+          echo checkout directory ${GITHUB_WORKSPACE}
+          echo PWD directory ${PWD}
+      - name: Write File
+        uses: DamianReeves/write-file-action@v1.0
+        with:
+          path: ./bin/release_notes.txt
+          contents: |
+            "just for CI"
+          write-mode: append
       - uses: uraimo/run-on-arch-action@v2
         name: Build artifact
         id: build
@@ -87,10 +111,11 @@ jobs:
           # Mount the artifacts directory as /artifacts in the container
           dockerRunArgs: |
             --volume "${PWD}/artifacts:/artifacts"
+            --volume "${GITHUB_WORKSPACE}:/source_code"
 
           # Pass some environment variables to the container
           env: | # YAML, but pipe character is necessary
-            artifact_name: ecapture-${{ matrix.distro }}_${{ matrix.arch }}
+            artifact_name: ecapture-${{ steps.get_tags.outputs.VERSION }}
 
           # The shell to run commands with in the container
           shell: /bin/sh
@@ -117,12 +142,62 @@ jobs:
             done
             clang --version
             which bpftool
-            git clone https://github.com/ehids/ecapture.git
-            cd ecapture
-            git checkout ${{ github.ref_name }}
+            git config --global --add safe.directory /source_code
+            cd /source_code
+            echo "-------------------end: Create ecapture.tar.gz of Linux -------------------"
+            make env
             make clean
             make
-            cp bin/ecapture "/artifacts/${artifact_name}"
+            echo "-------------------ecapture --help-------------------"
+            bin/ecapture -h
+            echo "-------------------create tar.gz file-------------------"
+            UNAME_M=`uname -m`
+            OUTPUT_DIR="./bin"
+            SNAPSHOT_VERSION=${{ steps.get_tags.outputs.VERSION }}
+            echo "#${SNAPSHOT_VERSION}#"
+            if [ -z "${SNAPSHOT_VERSION}" ]; then
+              SNAPSHOT_VERSION="v0.0.0"
+            fi
+            TAR_DIR=ecapture-${SNAPSHOT_VERSION}-linux-${UNAME_M}
+            RELEASE_NOTES=${OUTPUT_DIR}/release_notes.txt
+            OUT_ARCHIVE=${OUTPUT_DIR}/${artifact_name}-linux-${{ matrix.arch }}.tar.gz
+            mkdir -p ${TAR_DIR}
+            cp LICENSE ${TAR_DIR}/LICENSE
+            cp CHANGELOG.md ${TAR_DIR}/CHANGELOG.md
+            cp README.md ${TAR_DIR}/README.md
+            cp README_CN.md ${TAR_DIR}/README_CN.md
+            cp ${OUTPUT_DIR}/ecapture ${TAR_DIR}/ecapture
+            cp ${OUTPUT_DIR}/release_notes.txt ${TAR_DIR}/release_notes.txt
+            tar  -czf ${OUT_ARCHIVE} ${TAR_DIR}
+            cp ${OUT_ARCHIVE} "/artifacts/"
+            echo "-------------------end: Create ecapture.tar.gz of Linux -------------------"
+            echo "-------------------end: Create ecapture.tar.gz of Android GKI -------------------"
+            make env
+            make clean
+            ANDROID=1 make
+            echo "-------------------ecapture --help-------------------"
+            bin/ecapture -h
+            echo "-------------------create tar.gz file-------------------"
+            UNAME_M=`uname -m`
+            OUTPUT_DIR="./bin"
+            SNAPSHOT_VERSION=${{ steps.get_tags.outputs.VERSION }}
+            echo "#${SNAPSHOT_VERSION}#"
+            if [ -z "${SNAPSHOT_VERSION}" ]; then
+              SNAPSHOT_VERSION="v0.0.0"
+            fi
+            TAR_DIR=ecapture-${SNAPSHOT_VERSION}-android_gki-${UNAME_M}
+            RELEASE_NOTES=${OUTPUT_DIR}/release_notes.txt
+            OUT_ARCHIVE=${OUTPUT_DIR}/${artifact_name}-android_gki-${{ matrix.arch }}.tar.gz
+            mkdir -p ${TAR_DIR}
+            cp LICENSE ${TAR_DIR}/LICENSE
+            cp CHANGELOG.md ${TAR_DIR}/CHANGELOG.md
+            cp README.md ${TAR_DIR}/README.md
+            cp README_CN.md ${TAR_DIR}/README_CN.md
+            cp ${OUTPUT_DIR}/ecapture ${TAR_DIR}/ecapture
+            cp ${OUTPUT_DIR}/release_notes.txt ${TAR_DIR}/release_notes.txt
+            tar  -czf ${OUT_ARCHIVE} ${TAR_DIR}
+            cp ${OUT_ARCHIVE} "/artifacts/"
+            echo "-------------------end: Create ecapture.tar.gz of Android GKI -------------------"
             go test -v ./...
             echo "Produced artifact at /artifacts/${artifact_name}"
 
