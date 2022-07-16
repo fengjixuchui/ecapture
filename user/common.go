@@ -10,27 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pkg/errors"
+	"errors"
 )
-
-const (
-	AF_FILE  = uint16(1)
-	AF_INET  = uint16(2)
-	AF_INET6 = uint16(10)
-)
-
-func inet_ntop(ip uint32) string {
-	return fmt.Sprintf("%d.%d.%d.%d", byte(ip), byte(ip>>8), byte(ip>>16), byte(ip>>24))
-}
-
-func GetDynLibDirs() []string {
-	dirs, err := ParseDynLibConf(LD_LOAD_PATH)
-	if err != nil {
-		log.Println(err.Error())
-		return default_so_paths
-	}
-	return append(dirs, "/lib64", "/usr/lib64")
-}
 
 func GlobMany(targets []string, onErr func(string, error)) []string {
 	rv := make([]string, 0, 20)
@@ -50,7 +31,10 @@ func GlobMany(targets []string, onErr func(string, error)) []string {
 			if err == nil {
 				// walk each match:
 				for _, p := range matches {
-					filepath.Walk(p, addFile)
+					e := filepath.Walk(p, addFile)
+					if e != nil {
+						continue
+					}
 				}
 			}
 			// path is not a wildcard, walk it:
@@ -156,8 +140,6 @@ func recurseDynStrings(dynSym []string, searchPath []string, soName string) stri
 
 					// not match ,will open it, and recurse it
 				}
-			} else {
-				// Nothing
 			}
 		}
 
@@ -167,7 +149,6 @@ func recurseDynStrings(dynSym []string, searchPath []string, soName string) stri
 
 		if fd == nil {
 			log.Fatal(fmt.Sprintf("cant found lib so:%s in dirs:%v", el, searchPath))
-			continue
 		}
 
 		bint, err := elf.NewFile(fd)
@@ -246,4 +227,15 @@ func dumpByteSlice(b []byte, perfix string) *bytes.Buffer {
 		}
 	}
 	return bb
+}
+
+func CToGoString(c []byte) string {
+	n := -1
+	for i, b := range c {
+		if b == 0 {
+			break
+		}
+		n = i
+	}
+	return string(c[:n+1])
 }

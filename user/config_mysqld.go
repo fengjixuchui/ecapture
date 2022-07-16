@@ -1,3 +1,6 @@
+//go:build !androidgki
+// +build !androidgki
+
 /*
 Copyright © 2022 CFC4N <cfc4n.cs@gmail.com>
 
@@ -7,8 +10,8 @@ package user
 import (
 	"bytes"
 	"debug/elf"
+	"errors"
 	"fmt"
-	"github.com/pkg/errors"
 	"os"
 	"regexp"
 	"strings"
@@ -76,7 +79,7 @@ func (this *MysqldConfig) Check() error {
 
 	// _Z16dispatch_command19enum_server_commandP3THDPcjbb
 
-	r, _ := regexp.Compile("\\w+dispatch_command\\w+")
+	r, _ := regexp.Compile(`\w+dispatch_command\w+`)
 	funcName := ""
 	for _, sym := range dynamicSymbols {
 		match := r.FindStringSubmatch(sym.Name)

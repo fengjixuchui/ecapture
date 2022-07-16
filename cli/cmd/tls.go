@@ -18,6 +18,7 @@ import (
 var oc = user.NewOpensslConfig()
 var gc = user.NewGnutlsConfig()
 var nc = user.NewNsprConfig()
+var goc = user.NewGoSSLConfig()
 
 // opensslCmd represents the openssl command
 var opensslCmd = &cobra.Command{
@@ -38,6 +39,7 @@ func init() {
 	opensslCmd.PersistentFlags().StringVar(&nc.Firefoxpath, "firefox", "", "firefox file path, default: /usr/lib/firefox/firefox.")
 	opensslCmd.PersistentFlags().StringVar(&nc.Nsprpath, "nspr", "", "libnspr44.so file path, will automatically find it from curl default.")
 	opensslCmd.PersistentFlags().StringVar(&oc.Pthread, "pthread", "", "libpthread.so file path, use to hook connect to capture socket FD.will automatically find it from curl.")
+	opensslCmd.PersistentFlags().StringVar(&goc.Path, "gobin", "", "path to binary built with Go toolchain.")
 
 	rootCmd.AddCommand(opensslCmd)
 }
@@ -48,25 +50,32 @@ func openSSLCommandFunc(command *cobra.Command, args []string) {
 	signal.Notify(stopper, os.Interrupt, syscall.SIGTERM)
 	ctx, cancelFun := context.WithCancel(context.TODO())
 
-	logger := log.Default()
+	logger := log.New(os.Stdout, "tls_", log.LstdFlags)
 
 	// save global config
 	gConf, e := getGlobalConf(command)
 	if e != nil {
 		logger.Fatal(e)
 	}
-	log.Printf("pid info :%d", os.Getpid())
+	if gConf.loggerFile != "" {
+		f, e := os.Create(gConf.loggerFile)
+		if e != nil {
+			logger.Fatal(e)
+			return
+		}
+		logger.SetOutput(f)
+	}
+	logger.Printf("ECAPTURE :: pid info :%d", os.Getpid())
 
-	modNames := []string{user.MODULE_NAME_OPENSSL, user.MODULE_NAME_GNUTLS, user.MODULE_NAME_NSPR}
+	modNames := []string{user.MODULE_NAME_OPENSSL, user.MODULE_NAME_GNUTLS, user.MODULE_NAME_NSPR, user.MODULE_NAME_GOSSL}
 
 	var runMods uint8
 	for _, modName := range modNames {
 		mod := user.GetModuleByName(modName)
 		if mod == nil {
-			logger.Printf("cant found module: %s", modName)
+			logger.Printf("ECAPTURE :: \tcant found module: %s", modName)
 			break
 		}
-		logger.Printf("start to run %s module", mod.Name())
 
 		var conf user.IConfig
 		switch mod.Name() {
@@ -76,11 +85,13 @@ func openSSLCommandFunc(command *cobra.Command, args []string) {
 			conf = gc
 		case user.MODULE_NAME_NSPR:
 			conf = nc
+		case user.MODULE_NAME_GOSSL:
+			conf = goc
 		default:
 		}
 
 		if conf == nil {
-			logger.Printf("cant found module %s config info.", mod.Name())
+			logger.Printf("ECAPTURE :: \tcant found module %s config info.", mod.Name())
 			break
 		}
 
@@ -90,15 +101,16 @@ func openSSLCommandFunc(command *cobra.Command, args []string) {
 		conf.SetHex(gConf.IsHex)
 		conf.SetNoSearch(gConf.NoSearch)
 
+		logger.Printf("%s\tmodule initialization", mod.Name())
 		if e := conf.Check(); e != nil {
-			logger.Printf("%v", e)
+			logger.Printf("%s\tmodule initialization failed. [skip it]. error:%+v", mod.Name(), e)
 			continue
 		}
 
 		//初始化
 		err := mod.Init(ctx, logger, conf)
 		if err != nil {
-			logger.Printf("%v", err)
+			logger.Printf("%s\tmodule initialization failed, [skip it]. error:%+v", mod.Name(), err)
 			continue
 		}
 
@@ -106,10 +118,11 @@ func openSSLCommandFunc(command *cobra.Command, args []string) {
 		go func(module user.IModule) {
 			err := module.Run()
 			if err != nil {
-				logger.Printf("%v", err)
+				logger.Printf("%s\tmodule run failed, [skip it]. error:%+v", module.Name(), err)
 				return
 			}
 		}(mod)
+		logger.Printf("%s\tmodule started successfully.", mod.Name())
 		runMods++
 	}
 

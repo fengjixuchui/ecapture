@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	cliName        = "ecapture"
+	cliName        = "eCapture"
 	cliDescription = "capture text SSL content without CA cert by ebpf hook."
 )
 
@@ -32,10 +32,10 @@ var rootCmd = &cobra.Command{
 	Short:      cliDescription,
 	SuggestFor: []string{"ecapture"},
 
-	Long: `eCapture is a tool that can capture plaintext packets 
+	Long: `eCapture(旁观者) is a tool that can capture plaintext packets 
 such as HTTPS and TLS without installing a CA certificate.
 It can also capture bash commands, which is suitable for 
-security auditing scenarios, such as database auditing of mysqld, etc.
+security auditing scenarios, such as database auditing of mysqld, etc (disabled on Android).
 
 Repository: https://github.com/ehids/ecapture
 `,
@@ -54,6 +54,9 @@ func Execute() {
 	rootCmd.SetUsageFunc(usageFunc)
 	rootCmd.SetHelpTemplate(`{{.UsageString}}`)
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
+	rootCmd.Version = GitVersion
+	rootCmd.SetVersionTemplate(`{{with .Name}}{{printf "%s " .}}{{end}}{{printf "version:\t%s" .Version}}
+`)
 	err := rootCmd.Execute()
 	if err != nil {
 		os.Exit(1)
@@ -77,4 +80,5 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&globalFlags.NoSearch, "nosearch", false, "no lib search")
 	rootCmd.PersistentFlags().Uint64VarP(&globalFlags.Pid, "pid", "p", defaultPid, "if pid is 0 then we target all pids")
 	rootCmd.PersistentFlags().Uint64VarP(&globalFlags.Uid, "uid", "u", defaultUid, "if uid is 0 then we target all users")
+	rootCmd.PersistentFlags().StringVarP(&globalFlags.loggerFile, "write-file", "w", "", "-w file Write the packets to file")
 }

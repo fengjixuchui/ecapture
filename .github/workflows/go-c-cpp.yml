@@ -30,6 +30,30 @@ jobs:
           make clean
           make env
           make
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          # Optional: version of golangci-lint to use in form of v1.2 or v1.2.3 or `latest` to use the latest version
+          #          version: v3.2.0
+
+          # Optional: working directory, useful for monorepos
+          # working-directory: somedir
+
+          # Optional: golangci-lint command line arguments.
+          args: --disable-all -E errcheck
+
+          # Optional: show only new issues if it's a pull request. The default value is `false`.
+          # only-new-issues: true
+
+          # Optional: if set to true then the all caching functionality will be complete disabled,
+          #           takes precedence over all other caching options.
+          # skip-cache: true
+
+          # Optional: if set to true then the action don't cache or restore ~/go/pkg.
+          # skip-pkg-cache: true
+
+          # Optional: if set to true then the action don't cache or restore ~/.cache/go-build.
+          # skip-build-cache: true
       - name: Build NOCORE
         run: |
           make clean
@@ -61,6 +85,30 @@ jobs:
           make clean
           make env
           make
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          # Optional: version of golangci-lint to use in form of v1.2 or v1.2.3 or `latest` to use the latest version
+          #          version: v3.2.0
+
+          # Optional: working directory, useful for monorepos
+          # working-directory: somedir
+
+          # Optional: golangci-lint command line arguments.
+          args: --disable-all -E errcheck
+
+          # Optional: show only new issues if it's a pull request. The default value is `false`.
+          # only-new-issues: true
+
+          # Optional: if set to true then the all caching functionality will be complete disabled,
+          #           takes precedence over all other caching options.
+          # skip-cache: true
+
+          # Optional: if set to true then the action don't cache or restore ~/go/pkg.
+          # skip-pkg-cache: true
+
+          # Optional: if set to true then the action don't cache or restore ~/.cache/go-build.
+          # skip-build-cache: true
       - name: Build NOCORE
         run: |
           make clean
@@ -142,14 +190,18 @@ jobs:
             done
             clang --version
             which bpftool
+            echo "cat /proc/1/cgroup:"
+            cat /proc/1/cgroup
+            echo "cat /proc/1/sched:"
+            cat /proc/1/sched
             git config --global --add safe.directory /source_code
             cd /source_code
-            echo "-------------------end: Create ecapture.tar.gz of Linux -------------------"
+            echo "-------------------start: Create ecapture.tar.gz of Linux -------------------"
             make env
             make clean
             make
             echo "-------------------ecapture --help-------------------"
-            bin/ecapture -h
+            bin/ecapture -v
             echo "-------------------create tar.gz file-------------------"
             UNAME_M=`uname -m`
             OUTPUT_DIR="./bin"
@@ -171,12 +223,12 @@ jobs:
             tar  -czf ${OUT_ARCHIVE} ${TAR_DIR}
             cp ${OUT_ARCHIVE} "/artifacts/"
             echo "-------------------end: Create ecapture.tar.gz of Linux -------------------"
-            echo "-------------------end: Create ecapture.tar.gz of Android GKI -------------------"
+            echo "-------------------start: Create ecapture.tar.gz of Android kernel CO:RE -------------------"
             make env
             make clean
             ANDROID=1 make
             echo "-------------------ecapture --help-------------------"
-            bin/ecapture -h
+            echo "bin/ecapture -v"
             echo "-------------------create tar.gz file-------------------"
             UNAME_M=`uname -m`
             OUTPUT_DIR="./bin"
@@ -187,7 +239,7 @@ jobs:
             fi
             TAR_DIR=ecapture-${SNAPSHOT_VERSION}-android_gki-${UNAME_M}
             RELEASE_NOTES=${OUTPUT_DIR}/release_notes.txt
-            OUT_ARCHIVE=${OUTPUT_DIR}/${artifact_name}-android_gki-${{ matrix.arch }}.tar.gz
+            OUT_ARCHIVE=${OUTPUT_DIR}/${artifact_name}-android_core-${{ matrix.arch }}.tar.gz
             mkdir -p ${TAR_DIR}
             cp LICENSE ${TAR_DIR}/LICENSE
             cp CHANGELOG.md ${TAR_DIR}/CHANGELOG.md
@@ -197,8 +249,7 @@ jobs:
             cp ${OUTPUT_DIR}/release_notes.txt ${TAR_DIR}/release_notes.txt
             tar  -czf ${OUT_ARCHIVE} ${TAR_DIR}
             cp ${OUT_ARCHIVE} "/artifacts/"
-            echo "-------------------end: Create ecapture.tar.gz of Android GKI -------------------"
-            go test -v ./...
+            echo "-------------------end: Create ecapture.tar.gz of Android kernel CO:RE -------------------"
             echo "Produced artifact at /artifacts/${artifact_name}"
 
       - name: Show the artifact

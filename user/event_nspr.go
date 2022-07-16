@@ -6,6 +6,7 @@ package user
 
 import (
 	"bytes"
+	"ecapture/pkg/event_processor"
 	"encoding/binary"
 	"fmt"
 	"strings"
@@ -13,7 +14,7 @@ import (
 
 type NsprDataEvent struct {
 	module       IModule
-	event_type   EVENT_TYPE
+	event_type   event_processor.EventType
 	DataType     int64
 	Timestamp_ns uint64
 	Pid          uint32
@@ -65,8 +66,7 @@ func (this *NsprDataEvent) StringHex() string {
 	var b *bytes.Buffer
 	var s string
 	// firefox 进程的通讯线程名为 Socket Thread
-	var fire_thread string
-	fire_thread = strings.TrimSpace(fmt.Sprintf("%s", this.Comm[:13]))
+	var fire_thread = strings.TrimSpace(fmt.Sprintf("%s", this.Comm[:13]))
 	// disable filter default
 	if false && strings.Compare(fire_thread, "Socket Thread") != 0 {
 		b = bytes.NewBufferString(fmt.Sprintf("%s[ignore]%s", COLORBLUE, COLORRESET))
@@ -113,13 +113,25 @@ func (this *NsprDataEvent) Module() IModule {
 	return this.module
 }
 
-func (this *NsprDataEvent) Clone() IEventStruct {
+func (this *NsprDataEvent) Clone() event_processor.IEventStruct {
 	event := new(NsprDataEvent)
 	event.module = this.module
-	event.event_type = EVENT_TYPE_OUTPUT
+	event.event_type = event_processor.EventTypeEventProcessor
 	return event
 }
 
-func (this *NsprDataEvent) EventType() EVENT_TYPE {
+func (this *NsprDataEvent) EventType() event_processor.EventType {
 	return this.event_type
+}
+
+func (this *NsprDataEvent) GetUUID() string {
+	return fmt.Sprintf("%d_%d_%s_%d", this.Pid, this.Tid, this.Comm, this.DataType)
+}
+
+func (this *NsprDataEvent) Payload() []byte {
+	return this.Data[:this.Data_len]
+}
+
+func (this *NsprDataEvent) PayloadLen() int {
+	return int(this.Data_len)
 }

@@ -1,13 +1,13 @@
 ![](./images/ecapture-logo-400x400.png)
 
-[简体中文介绍](./README_CN.md) | English
+[中文介绍](./README_CN.md) | English
 
 [![GitHub stars](https://img.shields.io/github/stars/ehids/ecapture.svg?label=Stars&logo=github)](https://github.com/ehids/ecapture)
 [![GitHub forks](https://img.shields.io/github/forks/ehids/ecapture?label=Forks&logo=github)](https://github.com/ehids/ecapture)
 [![CI](https://github.com/ehids/ecapture/actions/workflows/codeql-analysis.yml/badge.svg)](https://github.com/ehids/ecapture/actions/workflows/code-analysis.yml)
 [![Github Version](https://img.shields.io/github/v/release/ehids/ecapture?display_name=tag&include_prereleases&sort=semver)](https://github.com/ehids/ecapture/releases)
 
-### eCapture:  capture SSL/TLS text content without CA cert Using eBPF.
+### eCapture(旁观者):  capture SSL/TLS text content without CA cert Using eBPF.
 
 ----
 
@@ -29,7 +29,7 @@
 ## use ELF binary file
 Download ELF zip file [release](https://github.com/ehids/ecapture/releases) , unzip and use by command `./ecapture --help`.
 
-* Linux kernel version >= 4.18
+* Linux kernel version >= 4.15 is required.
 * Enable BTF [BPF Type Format (BTF)](https://www.kernel.org/doc/html/latest/bpf/btf.html)  (Optional, 2022-04-17)
 
 ### check your server BTF config：
@@ -122,7 +122,8 @@ Probes: []*manager.Probe{
 hook `/bin/bash` symbol name `readline`.
 
 # How to compile
-Linux Kernel: >= 4.18.
+
+Linux Kernel: >= 4.15.
 
 ## Tools 
 * golang 1.16

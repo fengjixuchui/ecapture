@@ -1,3 +1,6 @@
+//go:build !androidgki
+// +build !androidgki
+
 /*
 Copyright © 2022 CFC4N <cfc4n.cs@gmail.com>
 
@@ -8,13 +11,15 @@ import (
 	"bytes"
 	"context"
 	"ecapture/assets"
+	"ecapture/pkg/event_processor"
+	"fmt"
 	"log"
 	"math"
 	"os"
 
+	"errors"
 	"github.com/cilium/ebpf"
 	manager "github.com/ehids/ebpfmanager"
-	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
 )
 
@@ -22,7 +27,7 @@ type MPostgresProbe struct {
 	Module
 	bpfManager        *manager.Manager
 	bpfManagerOptions manager.Options
-	eventFuncMaps     map[*ebpf.Map]IEventStruct
+	eventFuncMaps     map[*ebpf.Map]event_processor.IEventStruct
 	eventMaps         []*ebpf.Map
 }
 
@@ -32,7 +37,7 @@ func (this *MPostgresProbe) Init(ctx context.Context, logger *log.Logger, conf I
 	this.conf = conf
 	this.Module.SetChild(this)
 	this.eventMaps = make([]*ebpf.Map, 0, 2)
-	this.eventFuncMaps = make(map[*ebpf.Map]IEventStruct)
+	this.eventFuncMaps = make(map[*ebpf.Map]event_processor.IEventStruct)
 	return nil
 }
 
@@ -48,23 +53,23 @@ func (this *MPostgresProbe) start() error {
 	// fetch ebpf assets
 	byteBuf, err := assets.Asset("user/bytecode/postgres_kern.o")
 	if err != nil {
-		return errors.Wrap(err, "couldn't find asset")
+		return fmt.Errorf("couldn't find asset")
 	}
 
 	// setup the managers
 	err = this.setupManagers()
 	if err != nil {
-		return errors.Wrap(err, "postgres module couldn't find binPath.")
+		return fmt.Errorf("postgres module couldn't find binPath %v.", err)
 	}
 
 	// initialize the bootstrap manager
 	if err := this.bpfManager.InitWithOptions(bytes.NewReader(byteBuf), this.bpfManagerOptions); err != nil {
-		return errors.Wrap(err, "couldn't init manager")
+		return fmt.Errorf("couldn't init manager %v.", err)
 	}
 
 	// start the bootstrap manager
 	if err := this.bpfManager.Start(); err != nil {
-		return errors.Wrap(err, "couldn't start bootstrap manager")
+		return fmt.Errorf("couldn't start bootstrap manager %v.", err)
 	}
 
 	// 加载map信息，map对应events decode表。
@@ -78,7 +83,7 @@ func (this *MPostgresProbe) start() error {
 
 func (this *MPostgresProbe) Close() error {
 	if err := this.bpfManager.Stop(manager.CleanAll); err != nil {
-		return errors.Wrap(err, "couldn't stop manager")
+		return fmt.Errorf("couldn't stop manager %v.", err)
 	}
 	return nil
 }
@@ -129,7 +134,7 @@ func (this *MPostgresProbe) setupManagers() error {
 	return nil
 }
 
-func (this *MPostgresProbe) DecodeFun(em *ebpf.Map) (IEventStruct, bool) {
+func (this *MPostgresProbe) DecodeFun(em *ebpf.Map) (event_processor.IEventStruct, bool) {
 	fun, found := this.eventFuncMaps[em]
 	return fun, found
 }

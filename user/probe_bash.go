@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 	"ecapture/assets"
+	"ecapture/pkg/event_processor"
+	"errors"
+	"fmt"
 	"github.com/cilium/ebpf"
 	manager "github.com/ehids/ebpfmanager"
-	"github.com/pkg/errors"
 	"golang.org/x/sys/unix"
 	"log"
 	"math"
@@ -16,7 +18,7 @@ type MBashProbe struct {
 	Module
 	bpfManager        *manager.Manager
 	bpfManagerOptions manager.Options
-	eventFuncMaps     map[*ebpf.Map]IEventStruct
+	eventFuncMaps     map[*ebpf.Map]event_processor.IEventStruct
 	eventMaps         []*ebpf.Map
 }
 
@@ -26,7 +28,7 @@ func (this *MBashProbe) Init(ctx context.Context, logger *log.Logger, conf IConf
 	this.conf = conf
 	this.Module.SetChild(this)
 	this.eventMaps = make([]*ebpf.Map, 0, 2)
-	this.eventFuncMaps = make(map[*ebpf.Map]IEventStruct)
+	this.eventFuncMaps = make(map[*ebpf.Map]event_processor.IEventStruct)
 	return nil
 }
 
@@ -42,20 +44,20 @@ func (this *MBashProbe) start() error {
 	// fetch ebpf assets
 	byteBuf, err := assets.Asset("user/bytecode/bash_kern.o")
 	if err != nil {
-		return errors.Wrap(err, "couldn't find asset")
+		return fmt.Errorf("couldn't find asset %v", err)
 	}
 
 	// setup the managers
 	this.setupManagers()
 
 	// initialize the bootstrap manager
-	if err := this.bpfManager.InitWithOptions(bytes.NewReader(byteBuf), this.bpfManagerOptions); err != nil {
-		return errors.Wrap(err, "couldn't init manager")
+	if err = this.bpfManager.InitWithOptions(bytes.NewReader(byteBuf), this.bpfManagerOptions); err != nil {
+		return fmt.Errorf("couldn't init manager %v ", err)
 	}
 
 	// start the bootstrap manager
-	if err := this.bpfManager.Start(); err != nil {
-		return errors.Wrap(err, "couldn't start bootstrap manager")
+	if err = this.bpfManager.Start(); err != nil {
+		return fmt.Errorf("couldn't start bootstrap manager %v ", err)
 	}
 
 	// 加载map信息，map对应events decode表。
@@ -69,7 +71,7 @@ func (this *MBashProbe) start() error {
 
 func (this *MBashProbe) Close() error {
 	if err := this.bpfManager.Stop(manager.CleanAll); err != nil {
-		return errors.Wrap(err, "couldn't stop manager")
+		return fmt.Errorf("couldn't stop manager %v ", err)
 	}
 	return nil
 }
@@ -94,15 +96,15 @@ func (this *MBashProbe) constantEditor() []manager.ConstantEditor {
 	}
 
 	if this.conf.GetPid() <= 0 {
-		this.logger.Printf("target all process. \n")
+		this.logger.Printf("%s\ttarget all process. \n", this.Name())
 	} else {
-		this.logger.Printf("target PID:%d \n", this.conf.GetPid())
+		this.logger.Printf("%s\ttarget PID:%d \n", this.Name(), this.conf.GetPid())
 	}
 
 	if this.conf.GetUid() <= 0 {
-		this.logger.Printf("target all users. \n")
+		this.logger.Printf("%s\ttarget all users. \n", this.Name())
 	} else {
-		this.logger.Printf("target UID:%d \n", this.conf.GetUid())
+		this.logger.Printf("%s\ttarget UID:%d \n", this.Name(), this.conf.GetUid())
 	}
 
 	return editor
@@ -119,8 +121,8 @@ func (this *MBashProbe) setupManagers() {
 		binaryPath = "/bin/bash"
 	}
 
-	this.logger.Printf("HOOK binrayPath:%s, FunctionName:readline\n", binaryPath)
-	this.logger.Printf("HOOK binrayPath:%s, FunctionName:execute_command\n", binaryPath)
+	this.logger.Printf("%s\tHOOK binrayPath:%s, FunctionName:readline\n", this.Name(), binaryPath)
+	this.logger.Printf("%s\tHOOK binrayPath:%s, FunctionName:execute_command\n", this.Name(), binaryPath)
 
 	this.bpfManager = &manager.Manager{
 		Probes: []*manager.Probe{
@@ -168,7 +170,7 @@ func (this *MBashProbe) setupManagers() {
 
 }
 
-func (this *MBashProbe) DecodeFun(em *ebpf.Map) (IEventStruct, bool) {
+func (this *MBashProbe) DecodeFun(em *ebpf.Map) (event_processor.IEventStruct, bool) {
 	fun, found := this.eventFuncMaps[em]
 	return fun, found
 }
