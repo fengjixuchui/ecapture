@@ -3,20 +3,42 @@ package user
 import (
 	"bytes"
 	"context"
+	"crypto"
 	"ecapture/assets"
 	"ecapture/pkg/event_processor"
-	"fmt"
-	"log"
-	"math"
-	"os"
-
+	"ecapture/pkg/util/hkdf"
 	"errors"
+	"fmt"
 	"github.com/cilium/ebpf"
 	manager "github.com/ehids/ebpfmanager"
 	"golang.org/x/sys/unix"
+	"hash"
+	"log"
+	"math"
+	"os"
 )
 
-const CONN_NOT_FOUND = "[ADDR_NOT_FOUND]"
+const (
+	CONN_NOT_FOUND = "[ADDR_NOT_FOUND]"
+
+	// tls 1.2
+	CLIENT_RANDOM = "CLIENT_RANDOM"
+
+	// tls 1.3
+	SERVER_HANDSHAKE_TRAFFIC_SECRET = "SERVER_HANDSHAKE_TRAFFIC_SECRET"
+	EXPORTER_SECRET                 = "EXPORTER_SECRET"
+	SERVER_TRAFFIC_SECRET_0         = "SERVER_TRAFFIC_SECRET_0"
+	CLIENT_HANDSHAKE_TRAFFIC_SECRET = "CLIENT_HANDSHAKE_TRAFFIC_SECRET"
+	CLIENT_TRAFFIC_SECRET_0         = "CLIENT_TRAFFIC_SECRET_0"
+)
+
+type Tls13MasterSecret struct {
+	ServerHandshakeTrafficSecret []byte
+	ExporterSecret               []byte
+	ServerTrafficSecret0         []byte
+	ClientHandshakeTrafficSecret []byte
+	ClientTrafficSecret0         []byte
+}
 
 type MOpenSSLProbe struct {
 	Module
@@ -27,6 +49,10 @@ type MOpenSSLProbe struct {
 
 	// pid[fd:Addr]
 	pidConns map[uint32]map[uint32]string
+
+	filename   string
+	file       *os.File
+	masterKeys map[string]bool
 }
 
 //对象初始化
@@ -37,6 +63,15 @@ func (this *MOpenSSLProbe) Init(ctx context.Context, logger *log.Logger, conf IC
 	this.eventMaps = make([]*ebpf.Map, 0, 2)
 	this.eventFuncMaps = make(map[*ebpf.Map]event_processor.IEventStruct)
 	this.pidConns = make(map[uint32]map[uint32]string)
+	this.masterKeys = make(map[string]bool)
+	fd := os.Getpid()
+	this.filename = fmt.Sprintf("ecapture_masterkey_%d.log", fd)
+	file, err := os.OpenFile(this.filename, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
+	if err != nil {
+		return err
+	}
+	this.file = file
+	this.logger.Printf("master key file: %s\n", this.filename)
 	return nil
 }
 
@@ -142,6 +177,7 @@ func (this *MOpenSSLProbe) setupManagers() error {
 
 	this.bpfManager = &manager.Manager{
 		Probes: []*manager.Probe{
+
 			{
 				Section:          "uprobe/SSL_write",
 				EbpfFuncName:     "probe_entry_SSL_write",
@@ -166,11 +202,52 @@ func (this *MOpenSSLProbe) setupManagers() error {
 				AttachToFuncName: "SSL_read",
 				BinaryPath:       binaryPath,
 			},
+
+			// --------------------------------------------------
+			// for SSL_write_ex \ SSL_read_ex
+			{
+				Section:          "uprobe/SSL_write",
+				EbpfFuncName:     "probe_entry_SSL_write",
+				AttachToFuncName: "SSL_write_ex",
+				BinaryPath:       binaryPath,
+				UID:              "uprobe_SSL_write_ex",
+			},
+			{
+				Section:          "uretprobe/SSL_write",
+				EbpfFuncName:     "probe_ret_SSL_write",
+				AttachToFuncName: "SSL_write_ex",
+				BinaryPath:       binaryPath,
+				UID:              "uretprobe_SSL_write_ex",
+			},
+			{
+				Section:          "uprobe/SSL_read",
+				EbpfFuncName:     "probe_entry_SSL_read",
+				AttachToFuncName: "SSL_read_ex",
+				BinaryPath:       binaryPath,
+				UID:              "uprobe_SSL_read_ex",
+			},
+			{
+				Section:          "uretprobe/SSL_read",
+				EbpfFuncName:     "probe_ret_SSL_read",
+				AttachToFuncName: "SSL_read_ex",
+				BinaryPath:       binaryPath,
+				UID:              "uretprobe_SSL_read_ex",
+			},
 			{
 				Section:          "uprobe/connect",
 				EbpfFuncName:     "probe_connect",
 				AttachToFuncName: "connect",
 				BinaryPath:       libPthread,
+			},
+			// --------------------------------------------------
+
+			// openssl masterkey
+			{
+				Section:          "uprobe/SSL_write_key",
+				EbpfFuncName:     "probe_ssl_master_key",
+				AttachToFuncName: "SSL_write",
+				BinaryPath:       binaryPath,
+				UID:              "uprobe_ssl_master_key",
 			},
 		},
 
@@ -180,6 +257,9 @@ func (this *MOpenSSLProbe) setupManagers() error {
 			},
 			{
 				Name: "connect_events",
+			},
+			{
+				Name: "mastersecret_events",
 			},
 		},
 	}
@@ -236,6 +316,18 @@ func (this *MOpenSSLProbe) initDecodeFun() error {
 	connEvent := &ConnDataEvent{}
 	connEvent.SetModule(this)
 	this.eventFuncMaps[ConnEventsMap] = connEvent
+
+	MasterkeyEventsMap, found, err := this.bpfManager.GetMap("mastersecret_events")
+	if err != nil {
+		return err
+	}
+	if !found {
+		return errors.New("cant found map:mastersecret_events")
+	}
+	this.eventMaps = append(this.eventMaps, MasterkeyEventsMap)
+	masterkeyEvent := &MasterSecretEvent{}
+	masterkeyEvent.SetModule(this)
+	this.eventFuncMaps[MasterkeyEventsMap] = masterkeyEvent
 	return nil
 }
 
@@ -296,9 +388,74 @@ func (this *MOpenSSLProbe) GetConn(pid, fd uint32) string {
 	return addr
 }
 
+func (this *MOpenSSLProbe) saveMasterSecret(event *MasterSecretEvent) {
+
+	var k = fmt.Sprintf("%02x", event.ClientRandom)
+
+	_, f := this.masterKeys[k]
+	if f {
+		// 已存在该随机数的masterSecret，不需要重复写入
+		return
+	}
+	this.masterKeys[k] = true
+
+	// save to file
+	var b *bytes.Buffer
+	switch event.Version {
+	case TLS1_2_VERSION:
+		b = bytes.NewBufferString(fmt.Sprintf("%s %02x %02x\n", CLIENT_RANDOM, event.ClientRandom, event.MasterKey))
+	case TLS1_3_VERSION:
+		// event.CipherId = 0x1301    // 50336513
+
+		var transcript hash.Hash
+		// check crypto type
+		switch uint16(event.CipherId & 0x0000FFFF) {
+		case hkdf.TLS_AES_128_GCM_SHA256:
+			transcript = crypto.SHA256.New()
+		case hkdf.TLS_AES_256_GCM_SHA384:
+			transcript = crypto.SHA384.New()
+		case hkdf.TLS_CHACHA20_POLY1305_SHA256:
+			transcript = crypto.SHA256.New()
+		default:
+			this.logger.Printf("non-tls 1.3 ciphersuite in tls13_hkdf_expand, CipherId: %d", event.CipherId)
+			return
+		}
+		transcript.Write(event.HandshakeTrafficHash[:])
+		clientSecret := hkdf.DeriveSecret(event.HandshakeSecret[:], hkdf.ClientHandshakeTrafficLabel, transcript)
+		b = bytes.NewBufferString(fmt.Sprintf("%s %02x %02x\n", hkdf.KeyLogLabelClientHandshake, event.ClientRandom, clientSecret))
+
+		serverHandshakeSecret := hkdf.DeriveSecret(event.HandshakeSecret[:], hkdf.ServerHandshakeTrafficLabel, transcript)
+		b.WriteString(fmt.Sprintf("%s %02x %02x\n", hkdf.KeyLogLabelClientHandshake, event.ClientRandom, serverHandshakeSecret))
+
+		transcript.Reset()
+		transcript.Write(event.ServerFinishedHash[:])
+
+		trafficSecret := hkdf.DeriveSecret(event.MasterSecret[:], hkdf.ClientApplicationTrafficLabel, transcript)
+		b.WriteString(fmt.Sprintf("%s %02x %02x\n", hkdf.KeyLogLabelClientTraffic, event.ClientRandom, trafficSecret))
+		serverSecret := hkdf.DeriveSecret(event.MasterSecret[:], hkdf.ServerApplicationTrafficLabel, transcript)
+		b.WriteString(fmt.Sprintf("%s %02x %02x\n", hkdf.KeyLogLabelServerTraffic, event.ClientRandom, serverSecret))
+
+		// TODO MasterSecret sum
+	default:
+		b = bytes.NewBufferString(fmt.Sprintf("%s %02x %02x\n", CLIENT_RANDOM, event.ClientRandom, event.MasterKey))
+	}
+	v := tls_version{version: event.Version}
+	l, e := this.file.WriteString(b.String())
+	if e != nil {
+		this.logger.Fatalf("%s: save CLIENT_RANDOM to file error:%s", v.String(), e.Error())
+		return
+	}
+	this.logger.Printf("%s: save CLIENT_RANDOM %02x to file success, %d bytes", v.String(), event.ClientRandom, l)
+}
+
 func (this *MOpenSSLProbe) Dispatcher(event event_processor.IEventStruct) {
-	// detect event type TODO
-	this.AddConn(event.(*ConnDataEvent).Pid, event.(*ConnDataEvent).Fd, event.(*ConnDataEvent).Addr)
+	// detect event type
+	switch event.(type) {
+	case *ConnDataEvent:
+		this.AddConn(event.(*ConnDataEvent).Pid, event.(*ConnDataEvent).Fd, event.(*ConnDataEvent).Addr)
+	case *MasterSecretEvent:
+		this.saveMasterSecret(event.(*MasterSecretEvent))
+	}
 	//this.logger.Println(event)
 }
 
