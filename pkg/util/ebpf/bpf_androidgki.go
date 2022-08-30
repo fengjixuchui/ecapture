@@ -6,6 +6,7 @@ package ebpf
 import (
 	"bufio"
 	"compress/gzip"
+	"fmt"
 	"os"
 )
 
@@ -37,14 +38,38 @@ func getAndroidConfig(filename string) (map[string]string, error) {
 	}
 	defer f.Close()
 
-	// uncompress
-	reader, err := gzip.NewReader(f)
+	// check if the file is gzipped
+	var magic []byte
+	var i int
+	magic = make([]byte, 2)
+	i, err = f.Read(magic)
 	if err != nil {
 		return KernelConfig, err
 	}
-	defer reader.Close()
+	if i != 2 {
+		return KernelConfig, fmt.Errorf("read %d bytes, expected 2", i)
+	}
 
-	s := bufio.NewScanner(reader)
+	var s *bufio.Scanner
+	_, err = f.Seek(0, 0)
+	if err != nil {
+		return KernelConfig, err
+	}
+
+	var reader *gzip.Reader
+	//magic number for gzip is 0x1f8b
+	if magic[0] == 0x1f && magic[1] == 0x8b {
+		// gzip file
+		reader, err = gzip.NewReader(f)
+		if err != nil {
+			return KernelConfig, err
+		}
+		s = bufio.NewScanner(reader)
+	} else {
+		// not gzip file
+		s = bufio.NewScanner(f)
+	}
+
 	if err = parse(s, KernelConfig); err != nil {
 		return KernelConfig, err
 	}

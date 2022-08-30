@@ -6,7 +6,8 @@ package cmd
 
 import (
 	"context"
-	"ecapture/user"
+	"ecapture/user/config"
+	"ecapture/user/module"
 	"errors"
 	"log"
 	"os"
@@ -17,10 +18,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var oc = user.NewOpensslConfig()
-var gc = user.NewGnutlsConfig()
-var nc = user.NewNsprConfig()
-var goc = user.NewGoSSLConfig()
+var oc = config.NewOpensslConfig()
+var gc = config.NewGnutlsConfig()
+var nc = config.NewNsprConfig()
+var goc = config.NewGoSSLConfig()
 
 // opensslCmd represents the openssl command
 var opensslCmd = &cobra.Command{
@@ -44,6 +45,7 @@ func init() {
 	opensslCmd.PersistentFlags().StringVar(&goc.Path, "gobin", "", "path to binary built with Go toolchain.")
 	opensslCmd.PersistentFlags().StringVarP(&oc.Write, "write", "w", "", "write the  raw packets to file as pcapng format.")
 	opensslCmd.PersistentFlags().StringVarP(&oc.Ifname, "ifname", "i", "", "(TC Classifier) Interface name on which the probe will be attached.")
+	opensslCmd.PersistentFlags().Uint16Var(&oc.Port, "port", 443, "port number to capture, default:443.")
 
 	rootCmd.AddCommand(opensslCmd)
 }
@@ -69,30 +71,31 @@ func openSSLCommandFunc(command *cobra.Command, args []string) {
 		}
 		logger.SetOutput(f)
 	}
+	logger.Printf("ECAPTURE :: version :%s", GitVersion)
 	logger.Printf("ECAPTURE :: pid info :%d", os.Getpid())
 
-	modNames := []string{user.MODULE_NAME_OPENSSL, user.MODULE_NAME_GNUTLS, user.MODULE_NAME_NSPR, user.MODULE_NAME_GOSSL}
+	modNames := []string{module.MODULE_NAME_OPENSSL, module.MODULE_NAME_GNUTLS, module.MODULE_NAME_NSPR, module.MODULE_NAME_GOSSL}
 
 	var runMods uint8
-	var runModules = make(map[string]user.IModule)
+	var runModules = make(map[string]module.IModule)
 	var wg sync.WaitGroup
 
 	for _, modName := range modNames {
-		mod := user.GetModuleByName(modName)
+		mod := module.GetModuleByName(modName)
 		if mod == nil {
 			logger.Printf("ECAPTURE :: \tcant found module: %s", modName)
 			break
 		}
 
-		var conf user.IConfig
+		var conf config.IConfig
 		switch mod.Name() {
-		case user.MODULE_NAME_OPENSSL:
+		case module.MODULE_NAME_OPENSSL:
 			conf = oc
-		case user.MODULE_NAME_GNUTLS:
+		case module.MODULE_NAME_GNUTLS:
 			conf = gc
-		case user.MODULE_NAME_NSPR:
+		case module.MODULE_NAME_NSPR:
 			conf = nc
-		case user.MODULE_NAME_GOSSL:
+		case module.MODULE_NAME_GOSSL:
 			conf = goc
 		default:
 		}
@@ -108,11 +111,11 @@ func openSSLCommandFunc(command *cobra.Command, args []string) {
 		conf.SetHex(gConf.IsHex)
 		conf.SetNoSearch(gConf.NoSearch)
 
-		err := conf.Check()
+		err = conf.Check()
 
 		if err != nil {
 			// ErrorGoBINNotSET is a special error, we should not print it.
-			if errors.Is(err, user.ErrorGoBINNotSET) {
+			if errors.Is(err, config.ErrorGoBINNotSET) {
 				logger.Printf("%s\tmodule [disabled].", mod.Name())
 				continue
 			}
@@ -131,13 +134,14 @@ func openSSLCommandFunc(command *cobra.Command, args []string) {
 		}
 
 		// 加载ebpf，挂载到hook点上，开始监听
-		go func(module user.IModule) {
-			err := module.Run()
-			if err != nil {
-				logger.Printf("%s\tmodule run failed, [skip it]. error:%+v", module.Name(), err)
-				return
-			}
-		}(mod)
+		//go func(module user.IModule) {
+		//
+		//}(mod)
+		err = mod.Run()
+		if err != nil {
+			logger.Printf("%s\tmodule run failed, [skip it]. error:%+v", mod.Name(), err)
+			continue
+		}
 		runModules[mod.Name()] = mod
 		logger.Printf("%s\tmodule started successfully.", mod.Name())
 		wg.Add(1)
@@ -146,17 +150,21 @@ func openSSLCommandFunc(command *cobra.Command, args []string) {
 
 	// needs runmods > 0
 	if runMods > 0 {
+		logger.Printf("ECAPTURE :: \tstart %d modules", runMods)
 		<-stopper
+	} else {
+		logger.Println("ECAPTURE :: \tNo runnable modules, Exit(1)")
+		os.Exit(1)
 	}
 	cancelFun()
 
 	// clean up
 	for _, mod := range runModules {
 		err = mod.Close()
+		wg.Done()
 		if err != nil {
 			logger.Fatalf("%s\tmodule close failed. error:%+v", mod.Name(), err)
 		}
-		wg.Done()
 	}
 
 	wg.Wait()

@@ -31,6 +31,9 @@
 #define ETH_P_IP 0x0800 /* Internet Protocol packet        */
 #define SKB_MAX_DATA_SIZE 2048
 
+// alawyse, we used it in openssl_tc.h
+const volatile u32 target_port = 443;
+
 // Optional Target PID
 // .rodata section bug via : https://github.com/ehids/ecapture/issues/39
 #ifndef KERNEL_LESS_5_2

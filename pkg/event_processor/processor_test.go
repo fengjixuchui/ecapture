@@ -16,15 +16,15 @@ var (
 
 type SSLDataEventTmp struct {
 	//Event_type   uint8    `json:"Event_type"`
-	DataType     int64      `json:"DataType"`
-	Timestamp_ns uint64     `json:"Timestamp_ns"`
-	Pid          uint32     `json:"Pid"`
-	Tid          uint32     `json:"Tid"`
-	Data_len     int32      `json:"Data_len"`
-	Comm         [16]byte   `json:"Comm"`
-	Fd           uint32     `json:"Fd"`
-	Version      int32      `json:"Version"`
-	Data         [4096]byte `json:"Data"`
+	DataType  int64      `json:"DataType"`
+	Timestamp uint64     `json:"Timestamp"`
+	Pid       uint32     `json:"Pid"`
+	Tid       uint32     `json:"Tid"`
+	Data_len  int32      `json:"DataLen"`
+	Comm      [16]byte   `json:"Comm"`
+	Fd        uint32     `json:"Fd"`
+	Version   int32      `json:"Version"`
+	Data      [4096]byte `json:"Data"`
 }
 
 func TestEventProcessor_Serve(t *testing.T) {
@@ -53,18 +53,18 @@ func TestEventProcessor_Serve(t *testing.T) {
 		if line == "" {
 			continue
 		}
-		var event SSLDataEventTmp
-		err := json.Unmarshal([]byte(line), &event)
+		var eventSSL SSLDataEventTmp
+		err := json.Unmarshal([]byte(line), &eventSSL)
 		if err != nil {
-			t.Fatalf("json unmarshal error: %s", err.Error())
+			t.Fatalf("json unmarshal error: %s, body:%v", err.Error(), line)
 		}
-		payloadFile := fmt.Sprintf("testdata/%d.bin", event.Timestamp_ns)
+		payloadFile := fmt.Sprintf("testdata/%d.bin", eventSSL.Timestamp)
 		b, e := ioutil.ReadFile(payloadFile)
 		if e != nil {
 			t.Fatalf("read payload file error: %s, file:%s", e.Error(), payloadFile)
 		}
-		copy(event.Data[:], b)
-		ep.Write(&BaseEvent{Data_len: event.Data_len, Data: event.Data, DataType: event.DataType, Timestamp_ns: event.Timestamp_ns, Pid: event.Pid, Tid: event.Tid, Comm: event.Comm, Fd: event.Fd, Version: event.Version})
+		copy(eventSSL.Data[:], b)
+		ep.Write(&BaseEvent{Data_len: eventSSL.Data_len, Data: eventSSL.Data, DataType: eventSSL.DataType, Timestamp: eventSSL.Timestamp, Pid: eventSSL.Pid, Tid: eventSSL.Tid, Comm: eventSSL.Comm, Fd: eventSSL.Fd, Version: eventSSL.Version})
 	}
 
 	tick := time.NewTicker(time.Second * 3)

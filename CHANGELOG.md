@@ -1,10 +1,61 @@
 <hr>
 
-# v0.3.0 (2022-07-20)
+# v0.4.1 (2022-08-21)
+
+## What's Changed
+* kern : define variable target_port always. by @cfc4n in https://github.com/ehids/ecapture/pull/157
+* workflows : build nocore version for Android default. by @cfc4n in https://github.com/ehids/ecapture/pull/159
+* pkg : Ifname default value. by @cfc4n in https://github.com/ehids/ecapture/pull/161
+* user : skip loopback network interface by @cfc4n in https://github.com/ehids/ecapture/pull/163
+* user : tls models exit gracefully. by @cfc4n in https://github.com/ehids/ecapture/pull/165
+* git: ignore .check* files by @blaisewang in https://github.com/ehids/ecapture/pull/168
+* pkg : fix config file parse failed, when as gzip format. by @cfc4n in https://github.com/ehids/ecapture/pull/169
+* fix gzip read err by @4ft35t in https://github.com/ehids/ecapture/pull/175
+* pkg/util/ebpf : add unit testing for kernel CONFIG reader by @cfc4n in https://github.com/ehids/ecapture/pull/176
+* user : fix incorrect TimeStamp by @cfc4n in https://github.com/ehids/ecapture/pull/179
+* cli/cmd : print version info by @cfc4n in https://github.com/ehids/ecapture/pull/177
+* kern : support boringssl offset for Android 12. by @cfc4n in https://github.com/ehids/ecapture/pull/181
+
+<hr>
+
+# v0.4.0 (2022-08-07)
+
 ## Breaking Changes
+
+**Support : capture plaintext packet as pcapng files for openssl TLS encryption.**
+
+> **Note:**
+>
+> Support `Wireshark` to open directly. Do not need to setting up `Master Secrets` files.
+>
+> Capture `raw packet` by Traffic Control eBPF filter. Added `Master Secrets` information into pcapng
+> with `Decryption Secrets Block` (DSB).
+
+> **Warning**
+>
+> change `loggerFile` flag as `-l` from `-w` , because `-w` is reserved for `Wireshark`, and keep same as `-w`
+> for `tcpdump`. use `ecapture -h` for help.
+> change `master secrets` filename from `ecapture_masterkey_[pid].log` to `ecapture_masterkey.log`.
+
+## What's Changed
+
+* new feature: capture TLS 1.3 master secret by @cfc4n in https://github.com/ehids/ecapture/pull/143
+* user : echo String() or StringHex() by CLI argument. by @cfc4n in https://github.com/ehids/ecapture/pull/149
+* cli/cmd : clean up all probe while process exit. (#150) by @cfc4n in https://github.com/ehids/ecapture/pull/151
+* save as Pcapng files #145 by @cfc4n in https://github.com/ehids/ecapture/pull/148
+* user : Support writing pcapng files with Decryption Secrets Block (DSB). by @cfc4n
+  in https://github.com/ehids/ecapture/pull/153
+
+<hr>
+
+# v0.3.0 (2022-07-20)
+
+## Breaking Changes
+
 **Capture TLS master_key ,save to file. Support openssl `1.1.1.X` . `TLS 1.2` .**
 
 Quick Guide:
+
 - use `ecapture` to capture TLS master_key, will save master secret to `ecapture_masterkey_[pid].log`.
 - use `tcpdump` to capture and save packets to `xxx.pcapng` file.
 - open `xxx.pcapng` file with `wireshark`.
@@ -14,7 +65,7 @@ Quick Guide:
 ## What's Changed
 * all : refactor event_processor EventType. by @cfc4n in https://github.com/ehids/ecapture/pull/134
 * fixed #138 : You have an error in your yaml syntax on line 79 by @cfc4n in https://github.com/ehids/ecapture/pull/139
-* New feature: capture openssl masterkey  #27 by @cfc4n in https://github.com/ehids/ecapture/pull/140
+* New feature: capture openssl masterkey #27 by @cfc4n in https://github.com/ehids/ecapture/pull/140
 
 **Full Changelog**: https://github.com/ehids/ecapture/compare/v0.2.2...v0.3.0
 

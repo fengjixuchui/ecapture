@@ -2,6 +2,7 @@ package event_processor
 
 import (
 	"bytes"
+	"ecapture/user/event"
 	"encoding/binary"
 	"fmt"
 )
@@ -59,16 +60,16 @@ func (t tls_version) String() string {
 }
 
 type BaseEvent struct {
-	event_type   EventType
-	DataType     int64
-	Timestamp_ns uint64
-	Pid          uint32
-	Tid          uint32
-	Data         [MAX_DATA_SIZE]byte
-	Data_len     int32
-	Comm         [16]byte
-	Fd           uint32
-	Version      int32
+	event_type event.EventType
+	DataType   int64
+	Timestamp  uint64
+	Pid        uint32
+	Tid        uint32
+	Data       [MAX_DATA_SIZE]byte
+	Data_len   int32
+	Comm       [16]byte
+	Fd         uint32
+	Version    int32
 }
 
 func (this *BaseEvent) Decode(payload []byte) (err error) {
@@ -76,7 +77,7 @@ func (this *BaseEvent) Decode(payload []byte) (err error) {
 	if err = binary.Read(buf, binary.LittleEndian, &this.DataType); err != nil {
 		return
 	}
-	if err = binary.Read(buf, binary.LittleEndian, &this.Timestamp_ns); err != nil {
+	if err = binary.Read(buf, binary.LittleEndian, &this.Timestamp); err != nil {
 		return
 	}
 	if err = binary.Read(buf, binary.LittleEndian, &this.Pid); err != nil {
@@ -151,13 +152,13 @@ func (this *BaseEvent) String() string {
 	return s
 }
 
-func (this *BaseEvent) Clone() IEventStruct {
-	event := new(BaseEvent)
-	event.event_type = EventTypeOutput
-	return event
+func (this *BaseEvent) Clone() event.IEventStruct {
+	e := new(BaseEvent)
+	e.event_type = event.EventTypeOutput
+	return e
 }
 
-func (this *BaseEvent) EventType() EventType {
+func (this *BaseEvent) EventType() event.EventType {
 	return this.event_type
 }
 

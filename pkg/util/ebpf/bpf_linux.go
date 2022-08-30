@@ -5,6 +5,7 @@ package ebpf
 
 import (
 	"bufio"
+	"compress/gzip"
 	"fmt"
 	"os"
 	"strings"
@@ -46,6 +47,7 @@ func GetSystemConfig() (map[string]string, error) {
 		return KernelConfig, e
 	}
 
+	var err error
 	for _, system_config_path := range configPaths {
 		var bootConf = system_config_path
 		if strings.Index(system_config_path, "%s") != -1 {
@@ -54,6 +56,7 @@ func GetSystemConfig() (map[string]string, error) {
 
 		KernelConfig, e = getLinuxConfig(bootConf)
 		if e != nil {
+			err = e
 			// 没有找到配置文件，继续找下一个
 			continue
 		}
@@ -65,7 +68,7 @@ func GetSystemConfig() (map[string]string, error) {
 	}
 
 	if !found {
-		return nil, fmt.Errorf("KernelConfig not found.")
+		return nil, fmt.Errorf("KernelConfig not found. with error: %v", err)
 	}
 	return KernelConfig, nil
 }
@@ -80,7 +83,38 @@ func getLinuxConfig(filename string) (map[string]string, error) {
 	}
 	defer f.Close()
 
-	s := bufio.NewScanner(f)
+	// check if the file is gzipped
+	var magic []byte
+	var i int
+	magic = make([]byte, 2)
+	i, err = f.Read(magic)
+	if err != nil {
+		return KernelConfig, err
+	}
+	if i != 2 {
+		return KernelConfig, fmt.Errorf("read %d bytes, expected 2", i)
+	}
+
+	var s *bufio.Scanner
+	_, err = f.Seek(0, 0)
+	if err != nil {
+		return KernelConfig, err
+	}
+
+	var reader *gzip.Reader
+	//magic number for gzip is 0x1f8b
+	if magic[0] == 0x1f && magic[1] == 0x8b {
+		// gzip file
+		reader, err = gzip.NewReader(f)
+		if err != nil {
+			return KernelConfig, err
+		}
+		s = bufio.NewScanner(reader)
+	} else {
+		// not gzip file
+		s = bufio.NewScanner(f)
+	}
+
 	if err = parse(s, KernelConfig); err != nil {
 		return KernelConfig, err
 	}
