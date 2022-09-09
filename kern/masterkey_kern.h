@@ -12,24 +12,8 @@
  * openssl 1.1.1.X 版本相关的常量
  * 参考：https://wiki.openssl.org/index.php/TLS1.3
  */
-#ifndef BORINGSSL
+#ifdef BORINGSSL
 //------------------------------------------
-
-// ssl->version 在 ssl_st 结构体中的偏移量
-#define SSL_VERSION_OFFSET 0
-// ssl->session 在 ssl_st 结构中的偏移量
-#define SSL_SESSION_OFFSET 0x510
-
-// session->master_key 在 SSL_SESSION 中的偏移量
-#define MASTER_KEY_OFFSET 80
-
-// ssl->s3 在 ssl_st中的偏移量
-#define SSL_S3_OFFSET 0xA8
-
-// s3->client_random 在 ssl3_state_st 中的偏移量
-#define SSL_S3_CLIENT_RANDOM_OFFSET 0xD8
-//------------------------------------------
-#else
 // android boringssl 版本
 // ssl->version 在 ssl_st 结构体中的偏移量
 #define SSL_VERSION_OFFSET 16
@@ -43,12 +27,38 @@
 // ssl->s3 在 ssl_st中的偏移量
 #define SSL_S3_OFFSET 48
 
+// s3->hs 在 ssl3_state_st 中的偏移量
+#define SSL_HS_OFFSET 272
+
+// hs->established_session 在 SSL_HANDSHAKE 中的偏移量
+#define SSL_ESTABLISHED_SESSION_OFFSET 456
+
+// hs->new_session 在 SSL_HANDSHAKE 中的偏移量
+#define SSL_HS_NEW_SESSION_OFFSET 656
+
+// hs->early_session 在 SSL_HANDSHAKE 中的偏移量
+#define SSL_HS_EARLY_SESSION_OFFSET 664
+
 // s3->client_random 在 ssl3_state_st 中的偏移量
 #define SSL_S3_CLIENT_RANDOM_OFFSET 48
+//------------------------------------------
+#else
+// ssl->version 在 ssl_st 结构体中的偏移量
+#define SSL_VERSION_OFFSET 0
+// ssl->session 在 ssl_st 结构中的偏移量
+#define SSL_SESSION_OFFSET 0x510
+
+// session->master_key 在 SSL_SESSION 中的偏移量
+#define MASTER_KEY_OFFSET 80
+
+// ssl->s3 在 ssl_st中的偏移量
+#define SSL_S3_OFFSET 0xA8
+
+// s3->client_random 在 ssl3_state_st 中的偏移量
+#define SSL_S3_CLIENT_RANDOM_OFFSET 0xD8
 #endif
 
 ////////// TLS 1.2 or older /////////
-
 
 // session->cipher 在 SSL_SESSION 中的偏移量
 #define SESSION_CIPHER_OFFSET 496
@@ -77,26 +87,20 @@
     unsigned char early_exporter_master_secret[EVP_MAX_MD_SIZE];
 */
 
-// session->cipher 在 SSL_SESSION 中的偏移量
-#define CIPHER_OFFSET 0xEC
-
-// ssl_cipher_st-> id 在 ssl_cipher_st 中的偏移量
-#define CIPHER_ID_OFFSET 0x18
-
 // ssl->handshake_secret 在 ssl_st 中的偏移量
-#define HANDSHAKE_SECRET_OFFSET 0x13C  // 316
+#define HANDSHAKE_SECRET_OFFSET 0x17C  // 380
 
 // ssl->master_secret 在 ssl_st 中的偏移量
-#define MASTER_SECRET_OFFSET 0x17C  // 380
+#define MASTER_SECRET_OFFSET 0x1BC  // 444
 
 // ssl->server_finished_hash 在 ssl_st 中的偏移量
-#define SERVER_FINISHED_HASH_OFFSET 0x27C  // 636
+#define SERVER_FINISHED_HASH_OFFSET 0x2BC  // 700
 
 // ssl->handshake_traffic_hash 在 ssl_st 中的偏移量
-#define HANDSHAKE_TRAFFIC_HASH_OFFSET 0x2BC  // 700
+#define HANDSHAKE_TRAFFIC_HASH_OFFSET 0x2FC  // 764
 
 // ssl->exporter_master_secret 在 ssl_st 中的偏移量
-#define EXPORTER_MASTER_SECRET_OFFSET 0x37C  // 892
+#define EXPORTER_MASTER_SECRET_OFFSET 0x3BC  // 956
 
 struct mastersecret_t {
     // TLS 1.2 or older
@@ -116,14 +120,21 @@ struct mastersecret_t {
 // ssl/ssl_local.h 1556行
 struct ssl3_state_st {
     long flags;
+#ifdef BORINGSSL
+    //  确保BORINGSSL的state_st 中client_random 的偏移量是48
+    u64 unused;
+#else
     size_t read_mac_secret_size;
     unsigned char read_mac_secret[EVP_MAX_MD_SIZE];
     size_t write_mac_secret_size;
     unsigned char write_mac_secret[EVP_MAX_MD_SIZE];
+#endif
     unsigned char server_random[SSL3_RANDOM_SIZE];
     unsigned char client_random[SSL3_RANDOM_SIZE];
 };
 
+#define TLS1_1_VERSION 0x0302
+#define TLS1_2_VERSION 0x0303
 #define TLS1_3_VERSION 0x0304
 
 /////////////////////////BPF MAPS ////////////////////////////////
@@ -159,6 +170,72 @@ static __always_inline struct mastersecret_t *make_event() {
     return bpf_map_lookup_elem(&bpf_context, &id);
 }
 
+#ifdef BORINGSSL
+// in boringssl, the master secret is stored in src/ssl/ssl_session.cc
+// SSL_SESSION *SSL_get_session(const SSL *ssl)
+static __always_inline u64 get_session_addr(void *ssl_st_ptr, u64 s3_address) {
+    u64 tmp_address;
+    //  zero: 优先获取  s3->established_session
+    u64 *ssl_established_session_ptr =
+        (u64 *)(s3_address + SSL_ESTABLISHED_SESSION_OFFSET);
+    int ret = bpf_probe_read_user(&tmp_address, sizeof(tmp_address),
+                                  ssl_established_session_ptr);
+    if (ret == 0 && tmp_address != 0) {
+        return tmp_address;
+    }
+
+    // get hs pointer
+    u64 *ssl_hs_st_ptr = (u64 *)(s3_address + SSL_HS_OFFSET);
+    ret = bpf_probe_read_user(&tmp_address, sizeof(tmp_address), ssl_hs_st_ptr);
+    if (ret) {
+        debug_bpf_printk("bpf_probe_read ssl_hs_st_ptr failed, ret :%d\n", ret);
+        return 0;
+    }
+    debug_bpf_printk("ssl_hs_st_ptr :%llx\n", ssl_hs_st_ptr);
+
+    // first: ssl_st->s3->hs->early_session
+    u64 *ssl_early_session_st_ptr =
+        (u64 *)(ssl_hs_st_ptr + SSL_HS_EARLY_SESSION_OFFSET);
+    ret = bpf_probe_read_user(&tmp_address, sizeof(tmp_address),
+                              ssl_early_session_st_ptr);
+    if (ret == 0 && tmp_address != 0) {
+        debug_bpf_printk(
+            "ssl_st->s3->hs->early_session is not null, address :%llx",
+            tmp_address);
+        return tmp_address;
+    }
+
+    // second: ssl_st->s3->hs->new_session
+    u64 *ssl_new_session_st_ptr =
+        (u64 *)(ssl_hs_st_ptr + SSL_HS_NEW_SESSION_OFFSET);
+    ret = bpf_probe_read_user(&tmp_address, sizeof(tmp_address),
+                              ssl_new_session_st_ptr);
+    // if ret !=0 or tmp_address == 0 then we try to get the session from
+    // ssl_st
+    if (ret == 0 && tmp_address != 0) {
+        debug_bpf_printk(
+            "ssl_st->s3->hs->new_session is not null, address :%llx",
+            tmp_address);
+        return tmp_address;
+    }
+
+    // third: ssl_st->session
+    u64 *ssl_session_st_ptr = (u64 *)(ssl_st_ptr + SSL_SESSION_OFFSET);
+    ret = bpf_probe_read_user(&tmp_address, sizeof(tmp_address),
+                              ssl_session_st_ptr);
+    if (ret) {
+        debug_bpf_printk(
+            "(OPENSSL) bpf_probe_read ssl_st_ptr:%llx, "
+            "ssl_session_st_ptr:%llx  failed, ret :%d\n",
+            ssl_st_ptr, ssl_new_session_st_ptr, ret);
+        return 0;
+    }
+    debug_bpf_printk("ssl_st:%llx, ssl_st->session is not null, address :%llx",
+                     ssl_st_ptr, tmp_address);
+    return tmp_address;
+}
+#endif
+
 /////////////////////////BPF FUNCTIONS ////////////////////////////////
 SEC("uprobe/SSL_write_key")
 int probe_ssl_master_key(struct pt_regs *ctx) {
@@ -188,44 +265,29 @@ int probe_ssl_master_key(struct pt_regs *ctx) {
     }
     u64 *ssl_version_ptr = (u64 *)(ssl_st_ptr + SSL_VERSION_OFFSET);
     // Get a ssl_session_st pointer
-    u64 *ssl_session_st_ptr = (u64 *)(ssl_st_ptr + SSL_SESSION_OFFSET);
     u64 *ssl_s3_st_ptr = (u64 *)(ssl_st_ptr + SSL_S3_OFFSET);
 
     // Get SSL->version pointer
     int version;
+    u64 address;
+    u64 s3_address;
     int ret =
         bpf_probe_read_user(&version, sizeof(version), (void *)ssl_version_ptr);
     if (ret) {
         debug_bpf_printk("bpf_probe_read tls_version failed, ret :%d\n", ret);
         return 0;
     }
-    mastersecret->version = version;
-    debug_bpf_printk("tls_version: %d\n", mastersecret->version);
-
-    // Get SSL_SESSION_t pointer
-    u64 address;
-    ret = bpf_probe_read_user(&address, sizeof(address), ssl_session_st_ptr);
-    if (ret) {
-        debug_bpf_printk("bpf_probe_read ssl_session_st_ptr failed, ret :%d\n",
-                         ret);
+#ifdef BORINGSSL
+    mastersecret->version = version & 0xFFFF;  //  uint16_t version;
+#else
+    mastersecret->version = version;  // int version;
+#endif
+    debug_bpf_printk("TLS version :%d\n", mastersecret->version);
+    if (mastersecret->version == TLS1_3_VERSION) {
+        // for debug TODO
+        // TLS 1.3 return 0
         return 0;
     }
-
-    // Get SSL_SESSION->cipher pointer
-    u64 *ssl_cipher_st_ptr = (u64 *)(address + SESSION_CIPHER_OFFSET);
-
-    ///////////////////////// get TLS 1.2 master secret ////////////////////
-    void *ms_ptr = (void *)(address + MASTER_KEY_OFFSET);
-    ret = bpf_probe_read_user(&mastersecret->master_key,
-                              sizeof(mastersecret->master_key), ms_ptr);
-    if (ret) {
-        debug_bpf_printk("bpf_probe_read MASTER_KEY_OFFSET failed, ret :%d\n",
-                         ret);
-        return 0;
-    }
-
-    debug_bpf_printk("master_key: %x %x %x\n", mastersecret->master_key[0],
-                     mastersecret->master_key[1], mastersecret->master_key[2]);
 
     // Get ssl3_state_st pointer
     ret = bpf_probe_read_user(&address, sizeof(address), ssl_s3_st_ptr);
@@ -234,7 +296,7 @@ int probe_ssl_master_key(struct pt_regs *ctx) {
             "bpf_probe_read ssl_s3_st_ptr pointer failed, ret :%d\n", ret);
         return 0;
     }
-
+    s3_address = address;
     struct ssl3_state_st ssl3_stat;
     ret = bpf_probe_read_user(&ssl3_stat, sizeof(ssl3_stat), (void *)address);
     if (ret) {
@@ -254,13 +316,53 @@ int probe_ssl_master_key(struct pt_regs *ctx) {
         return 0;
     }
 
-    //////////////////// check tls version eq to TLS 1.3
-    ///////////////////////////
-    if (version != TLS1_3_VERSION) {
+    // Get ssl_session_st pointer
+    u64 *ssl_session_st_ptr;
+    u64 ssl_session_st_addr;
+#ifdef BORINGSSL
+    ssl_session_st_addr = get_session_addr(ssl_st_ptr, s3_address);
+    if (ssl_session_st_addr == 0) {
+        debug_bpf_printk("ssl_session_st_addr is null\n");
+        return 0;
+    }
+
+#else
+    ssl_session_st_ptr = (u64 *)(ssl_st_ptr + SSL_SESSION_OFFSET);
+    ret = bpf_probe_read_user(&ssl_session_st_addr, sizeof(ssl_session_st_addr),
+                              ssl_session_st_ptr);
+    if (ret) {
+        debug_bpf_printk(
+            "(OPENSSL) bpf_probe_read ssl_session_st_ptr failed, ret :%d\n",
+            ret);
+        return 0;
+    }
+#endif
+    ///////////////////////// get TLS 1.2 master secret ////////////////////
+    if (mastersecret->version != TLS1_3_VERSION) {
+        void *ms_ptr = (void *)(ssl_session_st_addr + MASTER_KEY_OFFSET);
+        ret = bpf_probe_read_user(&mastersecret->master_key,
+                                  sizeof(mastersecret->master_key), ms_ptr);
+        if (ret) {
+            debug_bpf_printk(
+                "bpf_probe_read MASTER_KEY_OFFSET failed, ms_ptr:%llx, ret "
+                ":%d\n",
+                ms_ptr, ret);
+            return 0;
+        }
+
+        debug_bpf_printk("master_key: %x %x %x\n", mastersecret->master_key[0],
+                         mastersecret->master_key[1],
+                         mastersecret->master_key[2]);
+
         bpf_perf_event_output(ctx, &mastersecret_events, BPF_F_CURRENT_CPU,
                               mastersecret, sizeof(struct mastersecret_t));
         return 0;
     }
+
+    ///////////////////////// get TLS 1.3 master secret ////////////////////
+    // Get SSL_SESSION->cipher pointer
+    u64 *ssl_cipher_st_ptr =
+        (u64 *)(ssl_session_st_addr + SESSION_CIPHER_OFFSET);
 
     // get cipher_suite_st pointer
     debug_bpf_printk("cipher_suite_st pointer: %x\n", ssl_cipher_st_ptr);
