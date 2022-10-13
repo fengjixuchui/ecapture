@@ -2,6 +2,7 @@ package event_processor
 
 import (
 	"bytes"
+	"encoding/hex"
 	"fmt"
 )
 
@@ -25,7 +26,9 @@ const (
 const (
 	PARSER_TYPE_NULL PARSER_TYPE = iota
 	PARSER_TYPE_HTTP_REQUEST
+	PARSER_TYPE_HTTP2_REQUEST
 	PARSER_TYPE_HTTP_RESPONSE
+	PARSER_TYPE_HTTP2_RESPONSE
 	PARSER_TYPE_WEB_SOCKET
 )
 
@@ -76,6 +79,12 @@ func NewParser(payload []byte) IParser {
 					newParser = new(HTTPRequest)
 				case PARSER_TYPE_HTTP_RESPONSE:
 					newParser = new(HTTPResponse)
+				case PARSER_TYPE_HTTP2_REQUEST:
+					// TODO support HTTP2 request
+					// via golang.org/x/net/http2
+					//hpack.NewEncoder(buf)
+				case PARSER_TYPE_HTTP2_RESPONSE:
+					// TODO  support HTTP2 response
 				}
 				break
 			}
@@ -127,6 +136,13 @@ func (this *DefaultParser) Init() {
 }
 
 func (this *DefaultParser) Display() []byte {
+	b := this.reader.Bytes()
+	if len(b) <= 0 {
+		return []byte{}
+	}
+	if b[0] < 32 || b[0] > 126 {
+		return []byte(hex.Dump(b))
+	}
 	return []byte(CToGoString(this.reader.Bytes()))
 }
 

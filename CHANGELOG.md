@@ -1,5 +1,23 @@
 <hr>
 
+# v0.4.5 (2022-10-10)
+
+## What's Changed
+* kern: capture master secrets for tls 1.3  @cfc4n in https://github.com/ehids/ecapture/pull/232
+
+<hr>
+
+# v0.4.4 (2022-10-03)
+
+## What's Changed
+* feat: add support TLSv1.3 decryption by @blaisewang in https://github.com/ehids/ecapture/pull/209
+* user/module : hex model output. by @cfc4n in https://github.com/ehids/ecapture/pull/220
+* user/module : use const for SSL masterKey function hook. by @cfc4n in https://github.com/ehids/ecapture/pull/217
+* kern: rodata map not supported on kernel 4.19 or older by @cfc4n in https://github.com/ehids/ecapture/pull/223
+* kern: http2 response packet decode failed. by @cfc4n in https://github.com/ehids/ecapture/pull/225
+
+<hr>
+
 # v0.4.3 (2022-09-09)
 
 ## What's Changed
