@@ -18,12 +18,16 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
 
 const (
-	CONN_NOT_FOUND = "[ADDR_NOT_FOUND]"
+	ConnNotFound               = "[ADDR_NOT_FOUND]"
+	LinuxDefauleFilename_1_1_1 = "linux_default_1_1_1"
+	LinuxDefauleFilename_3_0   = "linux_default_3_0"
+	AndroidDefauleFilename     = "android_default"
 )
 
 type Tls13MasterSecret struct {
@@ -37,8 +41,8 @@ type Tls13MasterSecret struct {
 type EBPFPROGRAMTYPE uint8
 
 const (
-	EBPFPROGRAMTYPE_OPENSSL_TC EBPFPROGRAMTYPE = iota
-	EBPFPROGRAMTYPE_OPENSSL_UPROBE
+	EbpfprogramtypeOpensslTc EBPFPROGRAMTYPE = iota
+	EbpfprogramtypeOpensslUprobe
 )
 
 type MOpenSSLProbe struct {
@@ -64,6 +68,9 @@ type MOpenSSLProbe struct {
 	tcPackets         []*TcPacket
 	masterKeyBuffer   *bytes.Buffer
 	tcPacketLocker    *sync.Mutex
+
+	sslVersionBpfMap map[string]string // bpf map key: ssl version, value: bpf map key
+	sslBpfFile       string            // ssl bpf file
 }
 
 // 对象初始化
@@ -75,6 +82,8 @@ func (this *MOpenSSLProbe) Init(ctx context.Context, logger *log.Logger, conf co
 	this.eventFuncMaps = make(map[*ebpf.Map]event.IEventStruct)
 	this.pidConns = make(map[uint32]map[uint32]string)
 	this.masterKeys = make(map[string]bool)
+	this.sslVersionBpfMap = make(map[string]string)
+
 	//fd := os.Getpid()
 	this.keyloggerFilename = "ecapture_masterkey.log"
 	file, err := os.OpenFile(this.keyloggerFilename, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0600)
@@ -84,14 +93,14 @@ func (this *MOpenSSLProbe) Init(ctx context.Context, logger *log.Logger, conf co
 	this.keylogger = file
 	var writeFile = this.conf.(*config.OpensslConfig).Write
 	if len(writeFile) > 0 {
-		this.eBPFProgramType = EBPFPROGRAMTYPE_OPENSSL_TC
+		this.eBPFProgramType = EbpfprogramtypeOpensslTc
 		fileInfo, err := filepath.Abs(writeFile)
 		if err != nil {
 			return err
 		}
 		this.pcapngFilename = fileInfo
 	} else {
-		this.eBPFProgramType = EBPFPROGRAMTYPE_OPENSSL_UPROBE
+		this.eBPFProgramType = EbpfprogramtypeOpensslUprobe
 		this.logger.Printf("%s\tmaster key keylogger: %s\n", this.Name(), this.keyloggerFilename)
 	}
 
@@ -111,7 +120,27 @@ func (this *MOpenSSLProbe) Init(ctx context.Context, logger *log.Logger, conf co
 	this.tcPackets = make([]*TcPacket, 0, 1024)
 	this.tcPacketLocker = &sync.Mutex{}
 	this.masterKeyBuffer = bytes.NewBuffer([]byte{})
+
+	this.initOpensslOffset()
 	return nil
+}
+
+// getSslBpfFile 根据sslVersion参数，获取对应的bpf文件
+func (this *MOpenSSLProbe) getSslBpfFile(soPath, sslVersion string) error {
+	if sslVersion != "" {
+		this.logger.Printf("%s\tOpenSSL/BoringSSL version: %s\n", this.Name(), sslVersion)
+		bpfFile, found := this.sslVersionBpfMap[sslVersion]
+		if found {
+			this.sslBpfFile = bpfFile
+			return nil
+		} else {
+			this.logger.Printf("%s\tCan't found OpenSSL/BoringSSL bpf bytecode file. auto detected.\n", this.Name())
+		}
+	}
+
+	// 未找到对应的bpf文件，尝试从so文件中获取
+	err := this.detectOpenssl(soPath)
+	return err
 }
 
 func (this *MOpenSSLProbe) Start() error {
@@ -120,27 +149,31 @@ func (this *MOpenSSLProbe) Start() error {
 
 func (this *MOpenSSLProbe) start() error {
 
-	// fetch ebpf assets
-	byteBuf, err := assets.Asset("user/bytecode/openssl_kern.o")
-	if err != nil {
-		return fmt.Errorf("%s\tcouldn't find asset %v .", this.Name(), err)
-	}
-
+	var err error
 	// setup the managers
 	switch this.eBPFProgramType {
-	case EBPFPROGRAMTYPE_OPENSSL_TC:
+	case EbpfprogramtypeOpensslTc:
 		this.logger.Printf("%s\tTC MODEL\n", this.Name())
 		err = this.setupManagersTC()
-	case EBPFPROGRAMTYPE_OPENSSL_UPROBE:
+	case EbpfprogramtypeOpensslUprobe:
 		this.logger.Printf("%s\tUPROBE MODEL\n", this.Name())
 		err = this.setupManagersUprobe()
 	default:
 		this.logger.Printf("%s\tUPROBE MODEL\n", this.Name())
 		err = this.setupManagersUprobe()
 	}
+	if err != nil {
+		return err
+	}
+
+	// fetch ebpf assets
+	// user/bytecode/openssl_kern.o
+	var bpfFileName = this.geteBPFName(filepath.Join("user/bytecode", this.sslBpfFile))
+	this.logger.Printf("%s\tBPF bytecode filename:%s\n", this.Name(), bpfFileName)
+	byteBuf, err := assets.Asset(bpfFileName)
 
 	if err != nil {
-		return fmt.Errorf("tls module couldn't find binPath %v .", err)
+		return fmt.Errorf("%s\tcouldn't find asset %v .", this.Name(), err)
 	}
 
 	// initialize the bootstrap manager
@@ -155,9 +188,9 @@ func (this *MOpenSSLProbe) start() error {
 
 	// 加载map信息，map对应events decode表。
 	switch this.eBPFProgramType {
-	case EBPFPROGRAMTYPE_OPENSSL_TC:
+	case EbpfprogramtypeOpensslTc:
 		err = this.initDecodeFunTC()
-	case EBPFPROGRAMTYPE_OPENSSL_UPROBE:
+	case EbpfprogramtypeOpensslUprobe:
 		err = this.initDecodeFun()
 	default:
 		err = this.initDecodeFun()
@@ -170,7 +203,7 @@ func (this *MOpenSSLProbe) start() error {
 }
 
 func (this *MOpenSSLProbe) Close() error {
-	if this.eBPFProgramType == EBPFPROGRAMTYPE_OPENSSL_TC {
+	if this.eBPFProgramType == EbpfprogramtypeOpensslTc {
 		this.logger.Printf("%s\tsaving pcapng file %s\n", this.Name(), this.pcapngFilename)
 		err := this.savePcapng()
 		if err != nil {
@@ -220,15 +253,25 @@ func (this *MOpenSSLProbe) constantEditor() []manager.ConstantEditor {
 }
 
 func (this *MOpenSSLProbe) setupManagersUprobe() error {
-	var binaryPath, libPthread string
+	var binaryPath, libPthread, sslVersion string
+	sslVersion = this.conf.(*config.OpensslConfig).SslVersion
+	sslVersion = strings.ToLower(sslVersion)
 	switch this.conf.(*config.OpensslConfig).ElfType {
 	case config.ELF_TYPE_BIN:
 		binaryPath = this.conf.(*config.OpensslConfig).Curlpath
 	case config.ELF_TYPE_SO:
 		binaryPath = this.conf.(*config.OpensslConfig).Openssl
+		err := this.getSslBpfFile(binaryPath, sslVersion)
+		if err != nil {
+			return err
+		}
 	default:
 		//如果没找到
 		binaryPath = "/lib/x86_64-linux-gnu/libssl.so.1.1"
+		err := this.getSslBpfFile(binaryPath, sslVersion)
+		if err != nil {
+			return err
+		}
 	}
 
 	libPthread = this.conf.(*config.OpensslConfig).Pthread
@@ -448,12 +491,12 @@ func (this *MOpenSSLProbe) GetConn(pid, fd uint32) string {
 	var f bool
 	m, f = this.pidConns[pid]
 	if !f {
-		return CONN_NOT_FOUND
+		return ConnNotFound
 	}
 
 	addr, f = m[fd]
 	if !f {
-		return CONN_NOT_FOUND
+		return ConnNotFound
 	}
 	return addr
 }
@@ -475,7 +518,6 @@ func (this *MOpenSSLProbe) saveMasterSecret(secretEvent *event.MasterSecretEvent
 	case event.TLS1_2_VERSION:
 		b = bytes.NewBufferString(fmt.Sprintf("%s %02x %02x\n", hkdf.KeyLogLabelTLS12, secretEvent.ClientRandom, secretEvent.MasterKey))
 	case event.TLS1_3_VERSION:
-		// secretEvent.CipherId = 0x1301    // 50336513
 		var length int
 		var transcript crypto.Hash
 		switch uint16(secretEvent.CipherId & 0x0000FFFF) {
@@ -486,16 +528,8 @@ func (this *MOpenSSLProbe) saveMasterSecret(secretEvent *event.MasterSecretEvent
 			length = 48
 			transcript = crypto.SHA384
 		default:
-			// TODO: multi version compatible.
-			// root cause : cipher's offset in ssl_st struct was changed between 1.1.1*.
-			// group a : 1.1.1a
-			// group b : 1.1.1b-1.1.1c
-			// group c : 1.1.1d-1.1.1i
-			// group e : 1.1.1j-1.1.1q
-			length = 32
-			transcript = crypto.SHA256
-			this.logger.Printf("non-TLSv1.3 cipher suite in tls13_hkdf_expand, CipherId: %d, use SHA256 default.", secretEvent.CipherId)
-			//return
+			this.logger.Printf("non-TLSv1.3 cipher suite found, CipherId: %d", secretEvent.CipherId)
+			return
 		}
 
 		clientHandshakeSecret := hkdf.ExpandLabel(secretEvent.HandshakeSecret[:length],
@@ -533,7 +567,7 @@ func (this *MOpenSSLProbe) saveMasterSecret(secretEvent *event.MasterSecretEvent
 
 	//
 	switch this.eBPFProgramType {
-	case EBPFPROGRAMTYPE_OPENSSL_TC:
+	case EbpfprogramtypeOpensslTc:
 		this.logger.Printf("%s: save CLIENT_RANDOM %02x to file success, %d bytes", v.String(), secretEvent.ClientRandom, l)
 		e = this.savePcapngSslKeyLog(b.Bytes())
 		if e != nil {

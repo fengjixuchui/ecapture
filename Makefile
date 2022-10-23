@@ -29,6 +29,7 @@ CMD_GREP ?= grep
 CMD_CAT ?= cat
 CMD_MD5 ?= md5sum
 CMD_BPFTOOL ?= bpftool
+KERNEL_LESS_5_2_PREFIX ?= _less52.o
 STYLE    ?= "{BasedOnStyle: Google, IndentWidth: 4}"
 
 .check_%:
@@ -149,24 +150,6 @@ VERSION ?= $(if $(RELEASE_TAG),$(RELEASE_TAG),$(LAST_GIT_TAG))
 UNAME_M := $(shell uname -m)
 UNAME_R := $(shell uname -r)
 
-
-#
-# Kernel Version detect
-#
-
-KERNEL_LESS_5_2_FLAGS ?=
-KERNEL_LESS_VERSION := 5.2.0
-HIGHER_VERSION := $(shell echo -e "$(UNAME_R)\n$(KERNEL_LESS_VERSION)" | sort -V | tail --lines=1)
-
-# kernel version compare
-ifeq ($(HIGHER_VERSION),$(KERNEL_LESS_VERSION))
-   # its an older kernel
-   KERNEL_LESS_5_2_FLAGS = -DKERNEL_LESS_5_2
-else
-  # its a newer kernel
-endif
-
-
 #
 # Target Arch
 #
@@ -204,7 +187,9 @@ BPF_NOCORE_TAG = $(subst .,_,$(KERN_RELEASE)).$(subst .,_,$(VERSION))
 # BPF Source file
 #
 
-TARGETS := kern/openssl
+TARGETS := $(foreach var,$(shell echo {a..r}),kern/openssl_1_1_1$(var))
+TARGETS += $(foreach var,$(shell echo {0..6}),kern/openssl_3_0_$(var))
+TARGETS += kern/boringssl_1_1_1
 TARGETS += kern/bash
 TARGETS += kern/gnutls
 TARGETS += kern/nspr
@@ -296,6 +281,15 @@ $(KERN_OBJECTS): %.o: %.c \
 		-target bpfel -c $< -o $(subst kern/,user/bytecode/,$@) \
 		-fno-ident -fdebug-compilation-dir . -g -D__BPF_TARGET_MISSING="GCC error \"The eBPF is using target specific macros, please provide -target\"" \
 		-MD -MP
+	#KERNEL_LESS_5_2
+	$(CMD_CLANG) -D__TARGET_ARCH_$(LINUX_ARCH) \
+		$(EXTRA_CFLAGS) \
+		$(BPFHEADER) \
+		-DKERNEL_LESS_5_2 \
+		$(BORINGSSL_FLAGS) \
+		-target bpfel -c $< -o $(subst kern/,user/bytecode/,$(subst .c,$(KERNEL_LESS_5_2_PREFIX),$<)) \
+		-fno-ident -fdebug-compilation-dir . -g -D__BPF_TARGET_MISSING="GCC error \"The eBPF is using target specific macros, please provide -target\"" \
+		-MD -MP
 
 .PHONY: ebpf
 ebpf: $(KERN_OBJECTS)
@@ -343,20 +337,41 @@ $(KERN_OBJECTS_NOCORE): %.nocore: %.c \
     		-I $(KERN_BUILD_PATH)/include/generated \
     		-I $(KERN_BUILD_PATH)/include/generated/uapi \
     		$(EXTRA_CFLAGS_NOCORE) \
-    		$(KERNEL_LESS_5_2_FLAGS) \
     		$(BORINGSSL_FLAGS) \
     		-c $< \
     		-o - |$(CMD_LLC) \
     		-march=bpf \
     		-filetype=obj \
     		-o $(subst kern/,user/bytecode/,$(subst .c,.o,$<))
+	# -DKERNEL_LESS_5_2
+	$(CMD_CLANG) \
+        		$(BPFHEADER) \
+        		-I $(KERN_SRC_PATH)/arch/$(LINUX_ARCH)/include \
+        		-I $(KERN_SRC_PATH)/arch/$(LINUX_ARCH)/include/uapi \
+        		-I $(KERN_BUILD_PATH)/arch/$(LINUX_ARCH)/include/generated \
+        		-I $(KERN_BUILD_PATH)/arch/$(LINUX_ARCH)/include/generated/uapi \
+        		-I $(KERN_SRC_PATH)/include \
+        		-I $(KERN_BUILD_PATH)/include \
+        		-I $(KERN_SRC_PATH)/include/uapi \
+        		-I $(KERN_BUILD_PATH)/include/generated \
+        		-I $(KERN_BUILD_PATH)/include/generated/uapi \
+        		$(EXTRA_CFLAGS_NOCORE) \
+        		-DKERNEL_LESS_5_2 \
+        		$(BORINGSSL_FLAGS) \
+        		-c $< \
+        		-o - |$(CMD_LLC) \
+        		-march=bpf \
+        		-filetype=obj \
+        		-o $(subst kern/,user/bytecode/,$(subst .c,$(KERNEL_LESS_5_2_PREFIX),$<))
 
 # Format the code
 format:
 	@echo "  ->  Formatting code"
 	@clang-format -i -style=$(STYLE) kern/*.c
 	@clang-format -i -style=$(STYLE) kern/common.h
-	@clang-format -i -style=$(STYLE) kern/masterkey_kern.h
+	@clang-format -i -style=$(STYLE) kern/openssl_masterkey.h
+	@clang-format -i -style=$(STYLE) kern/openssl_masterkey_3.0.h
+	@clang-format -i -style=$(STYLE) kern/boringssl_masterkey.h
 	@clang-format -i -style=$(STYLE) kern/openssl_tc.h
 
 autogen: .checkver_$(CMD_BPFTOOL)
