@@ -12,32 +12,73 @@ import (
 )
 
 const (
-	MaxSupportedOpenSSL111Version = 'r'
-	MaxSupportedOpenSSL30Version  = '6'
+	LinuxDefauleFilename_1_0_2 = "linux_default_1_0_2"
+	LinuxDefauleFilename_1_1_0 = "linux_default_1_1_0"
+	LinuxDefauleFilename_1_1_1 = "linux_default_1_1_1"
+	LinuxDefauleFilename_3_0   = "linux_default_3_0"
+	AndroidDefauleFilename     = "android_default"
+)
+
+const (
+	MaxSupportedOpenSSL102Version = 'u'
+	MaxSupportedOpenSSL110Version = 'l'
+	MaxSupportedOpenSSL111Version = 's'
+	MaxSupportedOpenSSL30Version  = '7'
 )
 
 // initOpensslOffset initial BpfMap
 func (this *MOpenSSLProbe) initOpensslOffset() {
 	this.sslVersionBpfMap = map[string]string{
+		// openssl 1.0.2*
+		LinuxDefauleFilename_1_0_2: "openssl_1_0_2a_kern.o",
+
+		// openssl 1.1.0*
+		LinuxDefauleFilename_1_1_0: "openssl_1_1_0a_kern.o",
 
 		// openssl 1.1.1*
-		LinuxDefauleFilename_1_1_1: "openssl_1_1_1" + string(MaxSupportedOpenSSL111Version) + "_kern.o",
+		LinuxDefauleFilename_1_1_1: "openssl_1_1_1j_kern.o",
 
 		// openssl 3.0.*
-		LinuxDefauleFilename_3_0: "openssl_3_0_" + string(MaxSupportedOpenSSL30Version) + "_kern.o",
+		LinuxDefauleFilename_3_0: "openssl_3_0_0_kern.o",
 
 		// boringssl
 		"boringssl 1.1.1":      "boringssl_1_1_1_kern.o",
 		AndroidDefauleFilename: "boringssl_1_1_1_kern.o",
 	}
 
-	for ch := 'a'; ch <= MaxSupportedOpenSSL111Version; ch++ {
-		this.sslVersionBpfMap["openssl 1.1.1"+string(ch)] = "openssl_1_1_1" + string(ch) + "_kern.o"
+	// in openssl source files, there are 4 offset groups for all 1.1.1* version.
+	// group a : 1.1.1a
+	this.sslVersionBpfMap["openssl 1.1.1a"] = "openssl_1_1_1a_kern.o"
+
+	// group b : 1.1.1b-1.1.1c
+	this.sslVersionBpfMap["openssl 1.1.1b"] = "openssl_1_1_1b_kern.o"
+	this.sslVersionBpfMap["openssl 1.1.1c"] = "openssl_1_1_1b_kern.o"
+
+	// group c : 1.1.1d-1.1.1i
+	for ch := 'd'; ch <= 'i'; ch++ {
+		this.sslVersionBpfMap["openssl 1.1.1"+string(ch)] = "openssl_1_1_1d_kern.o"
 	}
 
-	for ch := '0'; ch <= MaxSupportedOpenSSL30Version; ch++ {
-		this.sslVersionBpfMap["openssl 3.0."+string(ch)] = "openssl_3_0_" + string(ch) + "_kern.o"
+	// group e : 1.1.1j-1.1.1s
+	for ch := 'j'; ch <= MaxSupportedOpenSSL111Version; ch++ {
+		this.sslVersionBpfMap["openssl 1.1.1"+string(ch)] = "openssl_1_1_1j_kern.o"
 	}
+
+	// openssl 3.0.0 - 3.0.7
+	for ch := '0'; ch <= MaxSupportedOpenSSL30Version; ch++ {
+		this.sslVersionBpfMap["openssl 3.0."+string(ch)] = "openssl_3_0_0_kern.o"
+	}
+
+	// openssl 1.1.0a - 1.1.0l
+	for ch := 'a'; ch <= MaxSupportedOpenSSL110Version; ch++ {
+		this.sslVersionBpfMap["openssl 1.1.0"+string(ch)] = "openssl_1_1_1a_kern.o"
+	}
+
+	// openssl 1.0.2a - 1.0.2u
+	for ch := 'a'; ch <= MaxSupportedOpenSSL102Version; ch++ {
+		this.sslVersionBpfMap["openssl 1.0.2"+string(ch)] = "openssl_1_0_2a_kern.o"
+	}
+
 }
 
 func (this *MOpenSSLProbe) detectOpenssl(soPath string) error {
@@ -54,7 +95,7 @@ func (this *MOpenSSLProbe) detectOpenssl(soPath string) error {
 	case elf.EM_X86_64:
 	case elf.EM_AARCH64:
 	default:
-		return fmt.Errorf("unsupported arch library ,ELF Header Machine is :%s", r.FileHeader.Machine.String())
+		return fmt.Errorf("unsupported arch library ,ELF Header Machine is :%s, must be one of EM_X86_64/EM_AARCH64", r.FileHeader.Machine.String())
 	}
 
 	s := r.Section(".rodata")
@@ -113,7 +154,6 @@ func (this *MOpenSSLProbe) detectOpenssl(soPath string) error {
 	}
 
 	versionKey := ""
-	isAndroid := this.conf.(*config.OpensslConfig).IsAndroid
 
 	for _, v := range dumpStrings {
 		if strings.Contains(string(v), "OpenSSL") {
@@ -125,19 +165,20 @@ func (this *MOpenSSLProbe) detectOpenssl(soPath string) error {
 		}
 	}
 
-	this.logger.Printf("versionKey:%s", versionKey)
-
 	var bpfFile string
 	var found bool
 	if versionKey != "" {
+		versionKeyLower := strings.ToLower(versionKey)
+		this.logger.Printf("%s\torigin version:%s, as key:%s", this.Name(), versionKey, versionKeyLower)
 		// find the sslVersion bpfFile from sslVersionBpfMap
-		bpfFile, found = this.sslVersionBpfMap[versionKey]
+		bpfFile, found = this.sslVersionBpfMap[versionKeyLower]
 		if found {
 			this.sslBpfFile = bpfFile
 			return nil
 		}
 	}
 
+	isAndroid := this.conf.(*config.OpensslConfig).IsAndroid
 	// if not found, use default
 	if isAndroid {
 		bpfFile, _ = this.sslVersionBpfMap[AndroidDefauleFilename]
