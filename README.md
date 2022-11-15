@@ -174,11 +174,11 @@ Linux Kernel: >= 4.15.
 ## command
 ```shell
 sudo apt-get update
-sudo apt-get install --yes build-essential pkgconf libelf-dev llvm-12 clang-12 linux-tools-common linux-tools-generic
+sudo apt-get install --yes build-essential pkgconf libelf-dev llvm-9 clang-9 linux-tools-common linux-tools-generic
 for tool in "clang" "llc" "llvm-strip"
 do
   sudo rm -f /usr/bin/$tool
-  sudo ln -s /usr/bin/$tool-12 /usr/bin/$tool
+  sudo ln -s /usr/bin/$tool-9 /usr/bin/$tool
 done
 git clone git@github.com:ehids/ecapture.git
 cd ecapture
@@ -187,7 +187,7 @@ bin/ecapture --help
 ```
 
 ## compile without BTF
-eCapture support NO BTF with command `make nocore` to compile on 2022/04/17.
+eCapture support BTF disabled with command `make nocore` to compile on 2022/04/17.
 ```shell
 make nocore
 bin/ecapture --help
