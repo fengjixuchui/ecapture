@@ -57,6 +57,7 @@ function run() {
     echo "Generating ${header_file}"
 
     ./config
+    make include/openssl/opensslconf.h
 
     clang -I include/ -I . offset.c -o offset $flag
 
@@ -65,9 +66,9 @@ function run() {
     ./offset >>${header_file}
     echo -e "// openssl 1.1.0 does not support TLS 1.3, set 0 default" >>${header_file}
     echo -e "#define SSL_ST_HANDSHAKE_SECRET 0" >>${header_file}
-    echo -e "#define SSL_ST_MASTER_SECRET 0" >>${header_file}
-    echo -e "#define SSL_ST_SERVER_FINISHED_HASH 0" >>${header_file}
     echo -e "#define SSL_ST_HANDSHAKE_TRAFFIC_HASH 0" >>${header_file}
+    echo -e "#define SSL_ST_CLIENT_APP_TRAFFIC_SECRET 0" >>${header_file}
+    echo -e "#define SSL_ST_SERVER_APP_TRAFFIC_SECRET 0" >>${header_file}
     echo -e "#define SSL_ST_EXPORTER_MASTER_SECRET 0\n" >>${header_file}
     echo -e "#include \"openssl.h\"" >>${header_file}
     echo -e "#include \"openssl_masterkey.h\"" >>${header_file}
