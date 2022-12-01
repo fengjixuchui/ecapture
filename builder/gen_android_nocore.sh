@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+SHELL_GH=gh
+
+sudo su
+cd ~ || exit
 
 # 发布Android nocore版本自用脚本。 ubnutu 22.04 ARM
 UNAME_M=`uname -m`
@@ -20,9 +24,9 @@ tar  -czf ${OUT_ARCHIVE} ${TAR_DIR}
 
 
 # upload to github
-gh release download ${SNAPSHOT_VERSION} -p "checksum-${SNAPSHOT_VERSION}.txt"
+${SHELL_GH} release download ${SNAPSHOT_VERSION} -p "checksum-${SNAPSHOT_VERSION}.txt"
 sha256sum ecapture-*.tar.gz >> checksum-${SNAPSHOT_VERSION}.txt
 files=($(ls ecapture-*.tar.gz checksum-${SNAPSHOT_VERSION}.txt))
 # shellcheck disable=SC2145
 echo "-------------------upload files: ${files[@]} -------------------"
-gh release upload ${SNAPSHOT_VERSION} "${files[@]}" --clobber
+${SHELL_GH} release upload ${SNAPSHOT_VERSION} "${files[@]}" --clobber
