@@ -93,7 +93,7 @@ func (this *MOpenSSLProbe) setupManagersTC() error {
 
 	this.logger.Printf("%s\tHOOK type:%d, binrayPath:%s\n", this.Name(), this.conf.(*config.OpensslConfig).ElfType, binaryPath)
 	this.logger.Printf("%s\tIfname:%s, Ifindex:%d,  Port:%d, Pcapng filepath:%s\n", this.Name(), this.ifName, this.ifIdex, this.conf.(*config.OpensslConfig).Port, this.pcapngFilename)
-	this.logger.Printf("%s\tlHook masterKey function:%s\n", this.Name(), this.masterHookFunc)
+	this.logger.Printf("%s\tHook masterKey function:%s\n", this.Name(), this.masterHookFunc)
 
 	// create pcapng writer
 	netIfs, err := net.Interfaces()
@@ -203,7 +203,7 @@ func (this *MOpenSSLProbe) initDecodeFunTC() error {
 	} else {
 		masterkeyEvent = &event.MasterSecretEvent{}
 	}
-	
+
 	//masterkeyEvent.SetModule(this)
 	this.eventFuncMaps[MasterkeyEventsMap] = masterkeyEvent
 	return nil
@@ -255,7 +255,7 @@ func (this *MOpenSSLProbe) createPcapng(netIfs []net.Interface) error {
 	// write interface description
 	ngIface := pcapgo.NgInterface{
 		Name:       this.conf.(*config.OpensslConfig).Ifname,
-		Comment:    "eCapture (旁观者): github.com/ehids/ecapture",
+		Comment:    "eCapture (旁观者): github.com/gojue/ecapture",
 		Filter:     "",
 		LinkType:   layers.LinkTypeEthernet,
 		SnapLength: uint32(math.MaxUint16),
@@ -270,7 +270,7 @@ func (this *MOpenSSLProbe) createPcapng(netIfs []net.Interface) error {
 	for _, iface := range netIfs {
 		ngIface = pcapgo.NgInterface{
 			Name:       iface.Name,
-			Comment:    "eCapture (旁观者): github.com/ehids/ecapture",
+			Comment:    "eCapture (旁观者): github.com/gojue/ecapture",
 			Filter:     "",
 			LinkType:   layers.LinkTypeEthernet,
 			SnapLength: uint32(math.MaxUint16),
