@@ -51,6 +51,7 @@ function run() {
     ./config
 
 #    make reconfigure reconf
+    make clean
     make include/openssl/opensslconf.h
     make include/openssl/configuration.h
     make build_generated
@@ -63,7 +64,7 @@ function run() {
     ./offset >>${header_file}
     echo -e "#include \"openssl.h\"" >>${header_file}
     echo -e "#include \"openssl_masterkey_3.0.h\"" >>${header_file}
-    echo -e "\n#endif\n" >>${header_file}
+    echo -e "\n#endif" >>${header_file}
 
     # clean up
     make clean

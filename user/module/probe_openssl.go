@@ -83,7 +83,7 @@ type MOpenSSLProbe struct {
 	sslVersionBpfMap map[string]string // bpf map key: ssl version, value: bpf map key
 	sslBpfFile       string            // ssl bpf file
 	isBoringSSL      bool              //
-	masterHookFunc   string            // SSL_do_handshake on boringSSL,  SSL_write on openssl
+	masterHookFunc   string            // SSL_in_init on boringSSL,  SSL_write on openssl
 }
 
 // 对象初始化
@@ -608,28 +608,36 @@ func (this *MOpenSSLProbe) saveMasterSecretBSSL(secretEvent *event.MasterSecretB
 		// 已存在该随机数的masterSecret，不需要重复写入
 		return
 	}
-	this.masterKeys[k] = true
 
 	// save to file
 	var b *bytes.Buffer
 	switch secretEvent.Version {
 	case event.TLS1_2_VERSION:
-		b = bytes.NewBufferString(fmt.Sprintf("%s %02x %02x\n", hkdf.KeyLogLabelTLS12, secretEvent.ClientRandom, secretEvent.Secret))
+		if this.bSSLEvent12NullSecrets(secretEvent) {
+			return
+		}
+		var length = int(secretEvent.HashLen)
+		b = bytes.NewBufferString(fmt.Sprintf("%s %02x %02x\n", hkdf.KeyLogLabelTLS12, secretEvent.ClientRandom, secretEvent.Secret[:length]))
+		this.masterKeys[k] = true
 	case event.TLS1_3_VERSION:
 		fallthrough
 	default:
 		var length int
-		length = 32
-
+		length = int(secretEvent.HashLen)
+		// 判断 密钥是否为空
+		if this.bSSLEvent13NullSecrets(secretEvent) {
+			return
+		}
+		this.masterKeys[k] = true
+		//this.logger.Printf("secretEvent.HashLen:%d, CipherId:%d", secretEvent.HashLen, secretEvent.HashLen)
 		b = bytes.NewBufferString(fmt.Sprintf("%s %02x %02x\n", hkdf.KeyLogLabelClientHandshake, secretEvent.ClientRandom, secretEvent.ClientHandshakeSecret[:length]))
-		b.WriteString(fmt.Sprintf("%s %02x %02x\n", hkdf.KeyLogLabelClientEarlyTafficSecret, secretEvent.ClientRandom, secretEvent.EarlyTrafficSecret[:length]))
+		//b.WriteString(fmt.Sprintf("%s %02x %02x\n", hkdf.KeyLogLabelClientEarlyTafficSecret, secretEvent.ClientRandom, secretEvent.EarlyTrafficSecret[:length]))
 		b.WriteString(fmt.Sprintf("%s %02x %02x\n", hkdf.KeyLogLabelClientTraffic, secretEvent.ClientRandom, secretEvent.ClientTrafficSecret0[:length]))
 		b.WriteString(fmt.Sprintf("%s %02x %02x\n", hkdf.KeyLogLabelServerHandshake, secretEvent.ClientRandom, secretEvent.ServerHandshakeSecret[:length]))
 		b.WriteString(fmt.Sprintf("%s %02x %02x\n", hkdf.KeyLogLabelServerTraffic, secretEvent.ClientRandom, secretEvent.ServerTrafficSecret0[:length]))
 		b.WriteString(fmt.Sprintf("%s %02x %02x\n", hkdf.KeyLogLabelExporterSecret, secretEvent.ClientRandom, secretEvent.ExporterSecret[:length]))
-
-		//b = bytes.NewBufferString(fmt.Sprintf("%s %02x %02x\n", hkdf.KeyLogLabelTLS12, secretEvent.ClientRandom, secretEvent.Secret))
 	}
+
 	v := event.TlsVersion{Version: secretEvent.Version}
 	l, e := this.keylogger.WriteString(b.String())
 	if e != nil {
@@ -649,6 +657,52 @@ func (this *MOpenSSLProbe) saveMasterSecretBSSL(secretEvent *event.MasterSecretB
 	default:
 		this.logger.Printf("%s: save CLIENT_RANDOM %02x to file success, %d bytes", v.String(), secretEvent.ClientRandom, l)
 	}
+}
+
+func (this *MOpenSSLProbe) bSSLEvent12NullSecrets(e *event.MasterSecretBSSLEvent) bool {
+	var isNull = true
+	var hashLen = int(e.HashLen)
+	for i := 0; i < hashLen; i++ {
+		if e.Secret[i] != 0 {
+			isNull = false
+			break
+		}
+	}
+	return isNull
+}
+
+func (this *MOpenSSLProbe) bSSLEvent13NullSecrets(e *event.MasterSecretBSSLEvent) bool {
+	var isNUllCount = 5
+
+	var hashLen = int(e.HashLen)
+	var chsChecked, ctsChecked, shsChecked, stsChecked, esChecked bool
+	for i := 0; i < hashLen; i++ {
+		if !chsChecked && e.ClientHandshakeSecret[i] != 0 {
+			isNUllCount -= 1
+			chsChecked = true
+		}
+
+		if !ctsChecked && e.ClientTrafficSecret0[i] != 0 {
+			isNUllCount -= 1
+			ctsChecked = true
+		}
+
+		if !shsChecked && e.ServerHandshakeSecret[i] != 0 {
+			isNUllCount -= 1
+			shsChecked = true
+		}
+
+		if !stsChecked && e.ServerTrafficSecret0[i] != 0 {
+			isNUllCount -= 1
+			stsChecked = true
+		}
+
+		if !esChecked && e.ExporterSecret[i] != 0 {
+			isNUllCount -= 1
+			esChecked = true
+		}
+	}
+	return isNUllCount != 0
 }
 
 func (this *MOpenSSLProbe) Dispatcher(eventStruct event.IEventStruct) {

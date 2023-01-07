@@ -1,10 +1,20 @@
 #!/usr/bin/env bash
 set -e
 
+
+echo $NON_ANDROID
+
 PROJECT_ROOT_DIR=$(pwd)
 BORINGSSL_REPO=https://android.googlesource.com/platform/external/boringssl
-#BORINGSSL_REPO=https://github.com/google/boringssl.git
 BORINGSSL_DIR="${PROJECT_ROOT_DIR}/deps/boringssl"
+
+NON_ANDROID=0
+if [[ $1 == 1 ]] ; then
+  BORINGSSL_REPO=https://github.com/google/boringssl.git
+  BORINGSSL_DIR="${PROJECT_ROOT_DIR}/deps/boringssl_non_android"
+  NON_ANDROID=1
+fi
+
 OUTPUT_DIR="${PROJECT_ROOT_DIR}/kern"
 
 if [[ ! -f "go.mod" ]]; then
@@ -47,7 +57,7 @@ function run() {
 #    git checkout ${tag}
     echo "Generating ${header_file}"
 
-    g++ -I include/ -I . -I ./src/ offset.c -o offset
+    g++ -Wno-write-strings -Wno-invalid-offsetof -I include/ -I . -I ./src/ offset.c -o offset
 
     echo -e "#ifndef ECAPTURE_${header_define}" >${header_file}
     echo -e "#define ECAPTURE_${header_define}\n" >>${header_file}
@@ -55,10 +65,7 @@ function run() {
     echo -e "#include \"boringssl_const.h\"" >>${header_file}
     echo -e "#include \"boringssl_masterkey.h\"" >>${header_file}
     echo -e "#include \"openssl.h\"" >>${header_file}
-    echo -e "\n#endif\n" >>${header_file}
-
-    # clean up
-    make clean
+    echo -e "\n#endif" >>${header_file}
 
   done
 
