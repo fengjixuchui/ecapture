@@ -14,8 +14,7 @@
 
 > **Note**
 >
-> Supports Linux kernel versions x86_64 4.18 and above, aarch64 5.2 and above.
-> Supports Android (Linux) kernel versions x86_64 4.18 and above, **aarch64 5.4** and above.
+> Supports Linux/Android kernel versions x86_64 4.18 and above, **aarch64 5.5** and above.
 > Does not support Windows and macOS system.
 ----
 
@@ -64,7 +63,7 @@ directly.
 ### plaintext result
 
 `./ecapture tls` will capture all plaintext context ,output to console, and capture `Master Secret` of `openssl TLS`
-save to `ecapture_master.log`. You can also use `tcpdump` to capture raw packet,and use `Wireshark` to read them
+save to `ecapture_masterkey.log`. You can also use `tcpdump` to capture raw packet,and use `Wireshark` to read them
 with `Master Secret` settings.
 
 >
@@ -165,10 +164,10 @@ hook `/bin/bash` symbol name `readline`.
 Linux Kernel: >= 4.18.
 
 ## Tools 
-* golang 1.18
-* clang 9.0
-* cmake 3.18.4
-* clang backend: llvm 9.0
+* golang 1.18 or newer
+* clang 9.0 or newer
+* cmake 3.18.4 or newer
+* clang backend: llvm 9.0 or newer
 * kernel config:CONFIG_DEBUG_INFO_BTF=y (Optional, 2022-04-17)
 
 ## command
