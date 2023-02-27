@@ -32,7 +32,6 @@ import (
 var oc = config.NewOpensslConfig()
 var gc = config.NewGnutlsConfig()
 var nc = config.NewNsprConfig()
-var goc = config.NewGoSSLConfig()
 
 // opensslCmd represents the openssl command
 var opensslCmd = &cobra.Command{
@@ -57,7 +56,6 @@ func init() {
 	opensslCmd.PersistentFlags().StringVar(&gc.Curlpath, "wget", "", "wget file path, default: /usr/bin/wget. (Deprecated)")
 	opensslCmd.PersistentFlags().StringVar(&nc.Firefoxpath, "firefox", "", "firefox file path, default: /usr/lib/firefox/firefox. (Deprecated)")
 	opensslCmd.PersistentFlags().StringVar(&nc.Nsprpath, "nspr", "", "libnspr44.so file path, will automatically find it from curl default.")
-	opensslCmd.PersistentFlags().StringVar(&goc.Path, "gobin", "", "path to binary built with Go toolchain.")
 	opensslCmd.PersistentFlags().StringVarP(&oc.Write, "write", "w", "", "write the  raw packets to file as pcapng format.")
 	opensslCmd.PersistentFlags().StringVarP(&oc.Ifname, "ifname", "i", "", "(TC Classifier) Interface name on which the probe will be attached.")
 	opensslCmd.PersistentFlags().Uint16Var(&oc.Port, "port", 443, "port number to capture, default:443.")
@@ -94,10 +92,10 @@ func openSSLCommandFunc(command *cobra.Command, args []string) {
 	logger.Printf("ECAPTURE :: Kernel Info : %s", version.String())
 
 	modNames := []string{}
-	if config.ELF_ARCH_ISANDROID {
-		modNames = []string{module.MODULE_NAME_OPENSSL}
+	if config.ElfArchIsandroid {
+		modNames = []string{module.ModuleNameOpenssl}
 	} else {
-		modNames = []string{module.MODULE_NAME_OPENSSL, module.MODULE_NAME_GNUTLS, module.MODULE_NAME_NSPR, module.MODULE_NAME_GOSSL}
+		modNames = []string{module.ModuleNameOpenssl, module.ModuleNameGnutls, module.ModuleNameNspr, module.ModuleNameGotls}
 	}
 
 	var runMods uint8
@@ -113,14 +111,12 @@ func openSSLCommandFunc(command *cobra.Command, args []string) {
 
 		var conf config.IConfig
 		switch mod.Name() {
-		case module.MODULE_NAME_OPENSSL:
+		case module.ModuleNameOpenssl:
 			conf = oc
-		case module.MODULE_NAME_GNUTLS:
+		case module.ModuleNameGnutls:
 			conf = gc
-		case module.MODULE_NAME_NSPR:
+		case module.ModuleNameNspr:
 			conf = nc
-		case module.MODULE_NAME_GOSSL:
-			conf = goc
 		default:
 		}
 
