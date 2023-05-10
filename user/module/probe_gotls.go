@@ -28,7 +28,7 @@ func init() {
 }
 
 const (
-	goTlsHookFunc         = "crypto/tls.(*Conn).writeRecordLocked"
+	goTlsWriteFunc        = "crypto/tls.(*Conn).writeRecordLocked"
 	goTlsMasterSecretFunc = "crypto/tls.(*Config).writeKeyLog"
 )
 
@@ -167,20 +167,24 @@ func (this *GoTLSProbe) start() error {
 
 func (this *GoTLSProbe) setupManagersUprobe() error {
 	var (
-		sec, ms_sec string
-		fn, ms_fn   string
+		sec, msSec, readSec string
+		fn, msFn, readFn    string
 	)
 
 	if this.isRegisterABI {
-		sec = "uprobe/gotls_text_register"
-		fn = "gotls_text_register"
-		ms_sec = "uprobe/gotls_mastersecret_register"
-		ms_fn = "gotls_mastersecret_register"
+		sec = "uprobe/gotls_write_register"
+		fn = "gotls_write_register"
+		readSec = "uprobe/gotls_read_register"
+		readFn = "gotls_read_register"
+		msSec = "uprobe/gotls_mastersecret_register"
+		msFn = "gotls_mastersecret_register"
 	} else {
-		sec = "uprobe/gotls_text_stack"
-		fn = "gotls_text_stack"
-		ms_sec = "uprobe/gotls_mastersecret_stack"
-		ms_fn = "gotls_mastersecret_stack"
+		sec = "uprobe/gotls_write_stack"
+		fn = "gotls_write_stack"
+		readSec = "uprobe/gotls_read_stack"
+		readFn = "gotls_read_stack"
+		msSec = "uprobe/gotls_mastersecret_stack"
+		msFn = "gotls_mastersecret_stack"
 	}
 	this.logger.Printf("%s\teBPF Function Name:%s, isRegisterABI:%t\n", this.Name(), fn, this.isRegisterABI)
 	this.bpfManager = &manager.Manager{
@@ -188,19 +192,12 @@ func (this *GoTLSProbe) setupManagersUprobe() error {
 			{
 				Section:          sec,
 				EbpfFuncName:     fn,
-				AttachToFuncName: goTlsHookFunc,
+				AttachToFuncName: goTlsWriteFunc,
 				BinaryPath:       this.path,
 			},
-			// gotls master secrets
-			// crypto/tls.(*Config).writeKeyLog
-			// crypto/tls/common.go
-			/*
-				func (c *Config) writeKeyLog(label string, clientRandom, secret []byte) error {
-				}
-			*/
 			{
-				Section:          ms_sec,
-				EbpfFuncName:     ms_fn,
+				Section:          msSec,
+				EbpfFuncName:     msFn,
 				AttachToFuncName: goTlsMasterSecretFunc,
 				BinaryPath:       this.path,
 				UID:              "uprobe_gotls_master_secret",
@@ -216,6 +213,20 @@ func (this *GoTLSProbe) setupManagersUprobe() error {
 		},
 	}
 
+	readOffsets := this.conf.(*config.GoTLSConfig).ReadTlsAddrs
+	//this.bpfManager.Probes = []*manager.Probe{}
+	for _, v := range readOffsets {
+		var uid = fmt.Sprintf("%s_%d", readFn, v)
+		this.logger.Printf("%s\tadd uretprobe function :%s, offset:0x%X\n", this.Name(), config.GoTlsReadFunc, v)
+		this.bpfManager.Probes = append(this.bpfManager.Probes, &manager.Probe{
+			Section:          readSec,
+			EbpfFuncName:     readFn,
+			AttachToFuncName: config.GoTlsReadFunc,
+			BinaryPath:       this.path,
+			UprobeOffset:     uint64(v),
+			UID:              uid,
+		})
+	}
 	this.bpfManagerOptions = manager.Options{
 		DefaultKProbeMaxActive: 512,
 

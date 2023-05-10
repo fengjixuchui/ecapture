@@ -4,11 +4,12 @@ go 1.18
 
 require (
 	github.com/cilium/ebpf v0.10.0
-	github.com/gojue/ebpfmanager v0.4.1
+	github.com/gojue/ebpfmanager v0.4.2
 	github.com/google/gopacket v1.1.19
 	github.com/shuLhan/go-bindata v4.0.0+incompatible
 	github.com/spf13/cobra v1.4.0
 	github.com/spf13/pflag v1.0.5
+	golang.org/x/arch v0.3.0
 	golang.org/x/crypto v0.0.0-20220722155217-630584e8d5aa
 	golang.org/x/sys v0.5.0
 )
