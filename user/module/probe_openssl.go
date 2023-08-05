@@ -75,6 +75,7 @@ type MOpenSSLProbe struct {
 	sslBpfFile       string            // ssl bpf file
 	isBoringSSL      bool              //
 	masterHookFunc   string            // SSL_in_init on boringSSL,  SSL_write on openssl
+	cgroupPath       string
 }
 
 // 对象初始化
@@ -126,6 +127,8 @@ func (m *MOpenSSLProbe) Init(ctx context.Context, logger *log.Logger, conf confi
 	m.masterKeyBuffer = bytes.NewBuffer([]byte{})
 
 	m.initOpensslOffset()
+	m.cgroupPath = m.conf.(*config.OpensslConfig).CGroupPath
+
 	return nil
 }
 
