@@ -13,6 +13,12 @@
 // ssl_st->s3
 #define SSL_ST_S3 0xa8
 
+// ssl_st->rbio
+#define SSL_ST_RBIO 0x10
+
+// ssl_st->wbio
+#define SSL_ST_WBIO 0x18
+
 // ssl_session_st->master_key
 #define SSL_SESSION_ST_MASTER_KEY 0x50
 
@@ -42,6 +48,9 @@
 
 // ssl_st->exporter_master_secret
 #define SSL_ST_EXPORTER_MASTER_SECRET 0x3bc
+
+// bio_st->num
+#define BIO_ST_NUM 0x30
 
 #include "openssl.h"
 #include "openssl_masterkey.h"

@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <crypto/bio/bio_lcl.h>
 #include <openssl/crypto.h>
 #include <ssl/ssl_locl.h>
 #include <stddef.h>
@@ -8,11 +9,14 @@
     X(ssl_st, version)              \
     X(ssl_st, session)              \
     X(ssl_st, s3)                   \
+    X(ssl_st, rbio)                 \
+    X(ssl_st, wbio)                 \
     X(ssl_session_st, master_key)   \
     X(ssl3_state_st, client_random) \
     X(ssl_session_st, cipher)       \
     X(ssl_session_st, cipher_id)    \
-    X(ssl_cipher_st, id)
+    X(ssl_cipher_st, id)            \
+    X(bio_st, num)
 
 void toUpper(char *s) {
     int i = 0;
