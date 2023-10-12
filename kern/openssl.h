@@ -15,6 +15,11 @@
 #include "ecapture.h"
 #include "tc.h"
 
+
+/***********************************************************
+ * Internal structs and definitions
+ ***********************************************************/
+
 enum ssl_data_event_type { kSSLRead, kSSLWrite };
 const u32 invalidFD = 0;
 
@@ -30,10 +35,6 @@ struct ssl_data_event_t {
     s32 version;
 };
 
-struct {
-    __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
-} tls_events SEC(".maps");
-
 struct connect_event_t {
     u64 timestamp_ns;
     u32 pid;
@@ -42,10 +43,6 @@ struct connect_event_t {
     char sa_data[SA_DATA_LEN];
     char comm[TASK_COMM_LEN];
 };
-
-struct {
-    __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
-} connect_events SEC(".maps");
 
 struct active_ssl_buf {
     /*
@@ -59,8 +56,25 @@ struct active_ssl_buf {
 };
 
 /***********************************************************
- * Internal structs and definitions
+ * BPF MAPS
  ***********************************************************/
+
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
+    __uint(key_size, sizeof(u32));
+    __uint(value_size, sizeof(u32));
+    __uint(max_entries, 1024);
+} tls_events SEC(".maps");
+
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PERF_EVENT_ARRAY);
+    __uint(key_size, sizeof(u32));
+    __uint(value_size, sizeof(u32));
+    __uint(max_entries, 1024);
+} connect_events SEC(".maps");
+
 
 // Key is thread ID (from bpf_get_current_pid_tgid).
 // Value is a pointer to the data buffer argument to SSL_write/SSL_read.
@@ -87,29 +101,14 @@ struct {
     __uint(max_entries, 1);
 } data_buffer_heap SEC(".maps");
 
-// OPENSSL struct to offset , via kern/README.md
-typedef long (*unused_fn)();
+// store ssl fd array for SSL_set_fd function hook.
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, u64);
+    __type(value, u64);
+    __uint(max_entries, 10240);
+} ssl_st_fd SEC(".maps");
 
-struct unused {};
-
-struct BIO {
-    const struct unused* method;
-    unused_fn callback;
-    unused_fn callback_ex;
-    char* cb_arg; /* first argument for the callback */
-    int init;
-    int shutdown;
-    int flags; /* extra storage */
-    int retry_reason;
-    int num;
-};
-
-struct ssl_st {
-    s32 version;
-    struct unused* method;
-    struct BIO* rbio;  // used by SSL_read
-    struct BIO* wbio;  // used by SSL_write
-};
 
 /***********************************************************
  * General helper functions
@@ -229,6 +228,14 @@ int probe_entry_SSL_write(struct pt_regs* ctx) {
 
     // get fd ssl->wbio->num
     u32 fd = (u32)ssl_wbio_num_addr;
+    if (fd == 0) {
+        u64 ssl_addr = (u64)ssl;
+        u64 *fd_ptr = bpf_map_lookup_elem(&ssl_st_fd, &ssl_addr);
+        if (fd_ptr) {
+            fd = (u64)*fd_ptr;
+        } else {
+        }
+    }
     debug_bpf_printk("openssl uprobe SSL_write FD:%d, version:%d\n", fd, ssl_version);
 
     const char* buf = (const char*)PT_REGS_PARM2(ctx);
@@ -332,6 +339,14 @@ int probe_entry_SSL_read(struct pt_regs* ctx) {
     }
 
     u32 fd = (u32)ssl_rbio_num_addr;
+    if (fd == 0) {
+        u64 ssl_addr = (u64)ssl;
+        u64 *fd_ptr = bpf_map_lookup_elem(&ssl_st_fd, &ssl_addr);
+        if (fd_ptr) {
+            fd = (u64)*fd_ptr;
+        } else {
+        }
+    }
     debug_bpf_printk("openssl uprobe PID:%d, SSL_read FD:%d\n", pid, fd);
 
     const char* buf = (const char*)PT_REGS_PARM2(ctx);
@@ -421,5 +436,24 @@ int probe_connect(struct pt_regs* ctx) {
 
     bpf_perf_event_output(ctx, &connect_events, BPF_F_CURRENT_CPU, &conn,
                           sizeof(struct connect_event_t));
+    return 0;
+}
+
+
+
+// int SSL_set_fd(SSL *s, int fd)
+// int SSL_set_rfd(SSL *s, int fd)
+// int SSL_set_wfd(SSL *s, int fd)
+SEC("uprobe/SSL_set_fd")
+int probe_SSL_set_fd(struct pt_regs* ctx) {
+    u64 current_pid_tgid = bpf_get_current_pid_tgid();
+    u32 pid = current_pid_tgid >> 32;
+    u64 current_uid_gid = bpf_get_current_uid_gid();
+    u32 uid = current_uid_gid;
+
+    u64 ssl_addr = (u64)PT_REGS_PARM1(ctx);
+    u64 fd = (u64)PT_REGS_PARM2(ctx);
+    bpf_map_update_elem(&ssl_st_fd, &ssl_addr, &fd, BPF_ANY);
+    debug_bpf_printk("SSL_set_fd hook!!, ssl_addr:%d, fd:%d\n", ssl_addr, fd);
     return 0;
 }
