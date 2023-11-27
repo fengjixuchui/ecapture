@@ -55,8 +55,10 @@ func (m *MOpenSSLProbe) initOpensslOffset() {
 		LinuxDefauleFilename_3_0: "openssl_3_0_0_kern.o",
 
 		// boringssl
-		"boringssl 1.1.1":      "boringssl_1_1_1_kern.o",
-		AndroidDefauleFilename: "boringssl_1_1_1_kern.o",
+		"boringssl 1.1.1":      "boringssl_a_13_kern.o",
+		"boringssl_a_13":       "boringssl_a_13_kern.o",
+		"boringssl_a_14":       "boringssl_a_14_kern.o",
+		AndroidDefauleFilename: "boringssl_a_13_kern.o",
 	}
 
 	// in openssl source files, there are 4 offset groups for all 1.1.1* version.
@@ -192,10 +194,22 @@ func (m *MOpenSSLProbe) detectOpenssl(soPath string) error {
 	}
 
 	isAndroid := m.conf.(*config.OpensslConfig).IsAndroid
+	androidVer := m.conf.(*config.OpensslConfig).AndroidVer
 	// if not found, use default
 	if isAndroid {
-		bpfFile, _ = m.sslVersionBpfMap[AndroidDefauleFilename]
-		m.logger.Printf("%s\tOpenSSL/BoringSSL version not found, used default version :%s\n", m.Name(), AndroidDefauleFilename)
+		// sometimes,boringssl version always was "boringssl 1.1.1" on android. but offsets are different.
+		// see kern/boringssl_a_13_kern.c and kern/boringssl_a_14_kern.c
+		// Perhaps we can utilize the Android Version to choose a specific version of boringssl.
+		// use the corresponding bpfFile
+		bpfFildAndroid := fmt.Sprintf("boringssl_a_%s", androidVer)
+		bpfFile, found = m.sslVersionBpfMap[bpfFildAndroid]
+		if found {
+			m.sslBpfFile = bpfFile
+			m.logger.Printf("%s\tOpenSSL/BoringSSL version found, ro.build.version.release=%s\n", m.Name(), androidVer)
+		} else {
+			bpfFile, _ = m.sslVersionBpfMap[AndroidDefauleFilename]
+			m.logger.Printf("%s\tOpenSSL/BoringSSL version not found, used default version :%s\n", m.Name(), AndroidDefauleFilename)
+		}
 	} else {
 		if strings.Contains(soPath, "libssl.so.3") {
 			bpfFile, _ = m.sslVersionBpfMap[LinuxDefauleFilename_3_0]

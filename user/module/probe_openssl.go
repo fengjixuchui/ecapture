@@ -297,7 +297,8 @@ func (m *MOpenSSLProbe) setupManagersUprobe() error {
 
 	libPthread = m.conf.(*config.OpensslConfig).Pthread
 	if libPthread == "" {
-		libPthread = "/lib/x86_64-linux-gnu/libpthread.so.0"
+		//libPthread = "/lib/x86_64-linux-gnu/libpthread.so.0"
+		m.logger.Printf("%s\tlibPthread path not found, IP info lost.\n", m.Name())
 	}
 
 	_, err := os.Stat(binaryPath)
@@ -306,7 +307,6 @@ func (m *MOpenSSLProbe) setupManagersUprobe() error {
 	}
 
 	m.logger.Printf("%s\tHOOK type:%d, binrayPath:%s\n", m.Name(), m.conf.(*config.OpensslConfig).ElfType, binaryPath)
-	m.logger.Printf("%s\tlibPthread:%s\n", m.Name(), libPthread)
 	m.logger.Printf("%s\tHook masterKey function:%s\n", m.Name(), m.masterHookFunc)
 
 	m.bpfManager = &manager.Manager{
@@ -338,12 +338,12 @@ func (m *MOpenSSLProbe) setupManagersUprobe() error {
 			},
 
 			// --------------------------------------------------
-			{
-				Section:          "uprobe/connect",
-				EbpfFuncName:     "probe_connect",
-				AttachToFuncName: "connect",
-				BinaryPath:       libPthread,
-			},
+			//{
+			//	Section:          "uprobe/connect",
+			//	EbpfFuncName:     "probe_connect",
+			//	AttachToFuncName: "connect",
+			//	BinaryPath:       libPthread,
+			//},
 
 			// --------------------------------------------------
 
@@ -391,6 +391,21 @@ func (m *MOpenSSLProbe) setupManagersUprobe() error {
 				Name: "mastersecret_events",
 			},
 		},
+	}
+
+	if libPthread != "" {
+		// detect libpthread.so path
+		_, err = os.Stat(libPthread)
+		if err == nil {
+			m.logger.Printf("%s\tlibPthread:%s\n", m.Name(), libPthread)
+			m.bpfManager.Probes = append(m.bpfManager.Probes, &manager.Probe{
+				Section:          "uprobe/connect",
+				EbpfFuncName:     "probe_connect",
+				AttachToFuncName: "connect",
+				BinaryPath:       libPthread,
+				UID:              "uprobe_connect",
+			})
+		}
 	}
 
 	m.bpfManagerOptions = manager.Options{
@@ -751,7 +766,11 @@ func (m *MOpenSSLProbe) dumpSslData(eventStruct *event.SSLDataEvent) {
 		eventStruct.Addr = addr
 	}
 	//m.processor.Write(eventStruct)
-	m.logger.Println(eventStruct)
+	if m.conf.GetHex() {
+		m.logger.Println(eventStruct.StringHex())
+	} else {
+		m.logger.Println(eventStruct.String())
+	}
 }
 
 func init() {

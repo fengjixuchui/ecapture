@@ -26,6 +26,8 @@ if [ ${release_num} == "20.04" ]; then
   CLANG_NUM=12
   elif [ ${release_num} == "22.10" ]; then
   CLANG_NUM=12
+  elif [ ${release_num} == "23.04" ];then
+  CLANG_NUM=15
   else
     echo "unsupported release version ${release_num}" && exit
 fi
@@ -42,7 +44,7 @@ if [[ ${UNAME_M} =~ "x86_64" ]];then
     echo "unsupported arch ${UNAME_M}";
 fi
 
-GOBIN_ZIP="go1.18.8.linux-${ARCH}.tar.gz"
+GOBIN_ZIP="go1.21.0.linux-${ARCH}.tar.gz"
 echo "GOBIN_ZIP:${GOBIN_ZIP}"
 
 

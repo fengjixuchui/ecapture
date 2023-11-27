@@ -139,6 +139,7 @@ func (oc *OpensslConfig) checkConnect() error {
 
 	//如果没找到，则报错。
 	if !found || funcName == "" {
+		oc.Pthread = ""
 		return errors.New(fmt.Sprintf("cant found 'connect' function to hook in files::%v", connectSharedObjects))
 	}
 	return nil
@@ -156,26 +157,7 @@ func (oc *OpensslConfig) Check() error {
 		oc.ElfType = ElfTypeSo
 		checkedOpenssl = true
 	}
-	/*
-			//如果配置 Curlpath的地址，判断文件是否存在，不存在则直接返回
-			if oc.Curlpath != "" || len(strings.TrimSpace(oc.Curlpath)) > 0 {
-				_, e := os.Stat(oc.Curlpath)
-				if e != nil {
-					return e
-				}
-			} else {
-				//如果没配置，则直接指定。
-				oc.Curlpath = "/usr/bin/curl"
-			}
 
-			if oc.Pthread != "" || len(strings.TrimSpace(oc.Pthread)) > 0 {
-			_, e := os.Stat(oc.Pthread)
-			if e != nil {
-				return e
-			}
-			checkedConnect = true
-		}
-	*/
 	if oc.Ifname == "" || len(strings.TrimSpace(oc.Ifname)) == 0 {
 		oc.Ifname = DefaultIfname
 	}
@@ -192,7 +174,8 @@ func (oc *OpensslConfig) Check() error {
 	}
 
 	if !checkedConnect {
-		return oc.checkConnect()
+		// Optional check
+		_ = oc.checkConnect()
 	}
 	s, e := checkCgroupPath(oc.CGroupPath)
 	if e != nil {
