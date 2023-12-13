@@ -17,6 +17,10 @@
 
 package config
 
+import (
+	"os"
+)
+
 // https://source.android.com/devices/architecture/vndk/linker-namespace
 var (
 	default_so_paths = []string{
@@ -24,6 +28,7 @@ var (
 		"/apex/com.android.conscrypt/lib64",
 		"/apex/com.android.runtime/lib64/bionic",
 	}
+	DefaultMapSizePerCpu = os.Getpagesize() * 512
 )
 
 const ElfArchIsandroid = true

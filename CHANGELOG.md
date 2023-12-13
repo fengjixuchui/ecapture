@@ -1,7 +1,88 @@
 <hr>
+# v0.7.0 (2023-12-03)
+## 🚀 Breaking Changes
+- Split `nss/gnutls/openssl` into three separate submodules. Corresponding to the `./ecapture nss`, `./ecapture gnutls`, `ecapture tls` commands.
+- Support `keylog` mode, equivalent to the functionality of the `SSLKEYLOGFILE` environment variable. Captures SSL/TLS communication keys directly without the need for changes in the target process.
+- Refactor the mode parameters supported by the `openssl`(aka tls) module using the `-m`parameter, with values `text`, `pcap`,`keylog`.
+  - `pcap` mode: Set with `-m pcap` or `-m pcapng` parameters. When using this mode, it is necessary to specify `--pcapfile` and `-i` parameters. The default value for the `--pcapfile` parameter is `ecapture_openssl.pcapng`.
+  - `keylog` mode: Set with `-m keylog` or `-m key` parameters. When using this mode, it is necessary to specify `--keylogfile`, defaulting to `ecapture_masterkey.log`.
+  - `text` mode: Default mode when `-m` parameter is unspecified. Outputs all plaintext packets in text form. (As of v0.7.0, no longer captures communication keys, please use `keylog` mode instead.)
+- Refactor the mode parameters supported by the `gotls` module, similar to the `openssl` module, without further details.
+- Optimize the memory size of eBPF Map, specify with the `--mapsize` parameter, defaulting to 5120 KB.
+- Remove the `-w` parameter, use `--pcapfile` parameter instead.
+- Change `log-addr` parameter to `logaddr`, with unchanged functionality.
+
+Thanks to the genius idea from @blaisewang.
+
+------
+* 将nss/gnutls/openssl拆分为独立的三个子模块。分别对应`./ecapture nss`、`./ecapture gnutls`、`ecapture tls`三个子命令。
+* 支持`keylog`模式，等同于`SSLKEYLOGFILE`环境变量的功能，无需目标进程改动，直接捕获SSL/TLS通信密钥。
+* 重构`openssl`(aka tls)模块支持的模式参数，使用`-m`参数指定，分别为`text`,`pcap`,`keylog`三个值。
+  * `pcap`模式：`-m pcap`或`-m pcapng`参数来设定。当使用本模式时，必需指定`--pcapfile`、`-i`这两个参数才能使用。 其中`--pcapfile`参数的默认值为`ecapture_openssl.pcapng`。
+  * `keylog`模式：`-m keylog`或`-m key`参数来设定。当使用本模式时，必需指定`--keylogfile`，默认为`ecapture_masterkey.log`。
+  * `text`模式：`-m`参数不指定时，默认为本模式。将以文本形式输出所有的明文数据包。（自v0.7.0起，不再捕获通讯密钥，请使用`keylog`模式代替）
+* 重构`gotls`模块支持的模式参数，与`openssl`模块一样，不再赘述。
+* 优化eBPF Map的内存大小，使用`--mapsize`参数指定，默认为5120 KB。
+* 移除`-w`参数，请使用`--pcapfile`参数代替。
+* 更改`log-addr`参数为`logaddr`，功能含义不变。
+
+感谢 @blaisewang 的天才思路。
+
+### Demo of keylog Mode Usage
+Using eCapture to capture communication keys in real-time and combining it with tshark for real-time decryption enables the real-time plaintext output of encrypted traffic. The steps are as follows:
+
+使用`eCapture`实时捕获通信密钥，并结合`tshark`实时解密，可以做到实时的加密流量明文输出。步骤如下：
+
+#### Terminal 1
+Start the keylog mode of eCapture first.
+
+先启动eCapture的`keylog`模式
+
+```shell
+ecapture tls -m keylog --keylogfile=ecapture_masterkey.log
+```
+
+### Terminal 2
+Start the tshark tool by specifying tls.keylog_file as the captured key file by eCapture, named ecapture_masterkey.
+
+再启动`tshark`工具，指定`tls.keylog_file`为eCapture捕获的密钥文件`ecapture_masterkey`
+
+**http 1.x**
+```shell
+tshark -o tls.keylog_file:ecapture_masterkey.log -Y http -T fields -e http.file_data -f "port 443" -i eth0
+```
+
+**http 2.0**
+```shell
+tshark -o tls.keylog_file:ecapture_masterkey.log -Y http2 -T fields -e http2.data.data -f "port 443" -i eth0
+```
+Afterward, any software that uses the eCapture HOOK with OpenSSL libraries can achieve real-time decryption and display of all encrypted communication traffic without requiring any modifications to these software applications.
+
+之后，其他使用`eCapture` HOOK的openssl类库的软件，所有加密通讯的流量，都可以实现实时解密并展示了，无需这些软件做任何改动。
+
+See [issue #432](https://github.com/gojue/ecapture/issues/432) for more detail.
+
+## What's Changed
+* ignore connect symbol cant found. by @cfc4n in https://github.com/gojue/ecapture/pull/431
+* Add support for stripped go binaries by @h0x0er in https://github.com/gojue/ecapture/pull/426
+* splitting gnutls/nss module from tls module lists. by @cfc4n in https://github.com/gojue/ecapture/pull/434
+* user: custom mapSize flag. improve memory usage #433 . by @cfc4n in https://github.com/gojue/ecapture/pull/435
+* add the `model` flag to distinguish the captured modes, support keylog captured. by @cfc4n in https://github.com/gojue/ecapture/pull/436
+
+**Full Changelog**: https://github.com/gojue/ecapture/compare/v0.6.6...v0.7.0
+
+<hr>
 
 # v0.6.6 (2023-11-19)
 ## What's Changed
+* add ubunutu23.04  aarch64 clang-15 into init_env.sh by @BiteFoo in https://github.com/gojue/ecapture/pull/413
+* Decode kernel time to user time by @h0x0er in https://github.com/gojue/ecapture/pull/418
+* Fix : openssl event output invalid with hex mode  by @cfc4n in https://github.com/gojue/ecapture/pull/421
+* user : Set the connect hook as an optional parameter. by @cfc4n in https://github.com/gojue/ecapture/pull/423
+
+## New Contributors
+* @BiteFoo made their first contribution in https://github.com/gojue/ecapture/pull/413
+* @h0x0er made their first contribution in https://github.com/gojue/ecapture/pull/418
 
 **Full Changelog**: https://github.com/gojue/ecapture/compare/v0.6.5...v0.6.6
 

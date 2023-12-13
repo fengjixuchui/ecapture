@@ -14,7 +14,10 @@
 
 package config
 
-import "ecapture/pkg/util/kernel"
+import (
+	"ecapture/pkg/util/kernel"
+	"os"
+)
 
 type IConfig interface {
 	Check() error //检测配置合法性
@@ -26,14 +29,25 @@ type IConfig interface {
 	SetUid(uint64)
 	SetHex(bool)
 	SetDebug(bool)
+	GetPerCpuMapSize() int
+	SetPerCpuMapSize(int)
 	EnableGlobalVar() bool //
 }
 
+const (
+	TlsCaptureModelText   = "text"
+	TlsCaptureModelPcap   = "pcap"
+	TlsCaptureModelPcapng = "pcapng"
+	TlsCaptureModelKey    = "key"
+	TlsCaptureModelKeylog = "keylog"
+)
+
 type eConfig struct {
-	Pid   uint64
-	Uid   uint64
-	IsHex bool
-	Debug bool
+	Pid           uint64
+	Uid           uint64
+	PerCpuMapSize int // ebpf map size for per Cpu.   see https://github.com/gojue/ecapture/issues/433 .
+	IsHex         bool
+	Debug         bool
 }
 
 func (c *eConfig) GetPid() uint64 {
@@ -66,6 +80,14 @@ func (c *eConfig) SetDebug(b bool) {
 
 func (c *eConfig) SetHex(isHex bool) {
 	c.IsHex = isHex
+}
+
+func (c *eConfig) GetPerCpuMapSize() int {
+	return c.PerCpuMapSize
+}
+
+func (c *eConfig) SetPerCpuMapSize(size int) {
+	c.PerCpuMapSize = size * os.Getpagesize()
 }
 
 func (c *eConfig) EnableGlobalVar() bool {

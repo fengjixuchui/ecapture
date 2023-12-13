@@ -46,7 +46,7 @@ var rootCmd = &cobra.Command{
 such as HTTPS and TLS without installing a CA certificate.
 It can also capture bash commands, which is suitable for 
 security auditing scenarios, such as database auditing of mysqld, etc (disabled on Android).
-
+Support Linux(Android)  X86_64 4.18/aarch64 5.5 or newer.
 Repository: https://github.com/gojue/ecapture
 HomePage: https://ecapture.cc
 
@@ -90,10 +90,10 @@ func init() {
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
 	//rootCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
-	rootCmd.PersistentFlags().BoolVarP(&globalFlags.Debug, "debug", "d", false, "enable debug logging")
+	rootCmd.PersistentFlags().BoolVarP(&globalFlags.Debug, "debug", "d", false, "enable debug logging.(coming soon)")
 	rootCmd.PersistentFlags().BoolVar(&globalFlags.IsHex, "hex", false, "print byte strings as hex encoded strings")
-	rootCmd.PersistentFlags().BoolVar(&globalFlags.NoSearch, "nosearch", false, "no lib search")
+	rootCmd.PersistentFlags().IntVar(&globalFlags.mapSizeKB, "mapsize", 1024, "eBPF map size per CPU,for events buffer. default:1024 * PAGESIZE. (KB)")
 	rootCmd.PersistentFlags().Uint64VarP(&globalFlags.Pid, "pid", "p", defaultPid, "if pid is 0 then we target all pids")
 	rootCmd.PersistentFlags().Uint64VarP(&globalFlags.Uid, "uid", "u", defaultUid, "if uid is 0 then we target all users")
-	rootCmd.PersistentFlags().StringVarP(&globalFlags.LoggerAddr, "log-addr", "l", "", "-l /tmp/ecapture.log or -l tcp://127.0.0.1:8080")
+	rootCmd.PersistentFlags().StringVarP(&globalFlags.LoggerAddr, "logaddr", "l", "", "-l /tmp/ecapture.log or -l tcp://127.0.0.1:8080")
 }
