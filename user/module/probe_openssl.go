@@ -56,7 +56,6 @@ const (
 )
 
 type MOpenSSLProbe struct {
-	Module
 	MTCProbe
 	bpfManager        *manager.Manager
 	bpfManagerOptions manager.Options
@@ -108,6 +107,8 @@ func (m *MOpenSSLProbe) Init(ctx context.Context, logger *log.Logger, conf confi
 		if err != nil {
 			return err
 		}
+		m.tcPacketsChan = make(chan *TcPacket, 2048)
+		m.tcPackets = make([]*TcPacket, 0, 256)
 		m.pcapngFilename = fileInfo
 	case config.TlsCaptureModelText:
 		fallthrough
@@ -129,7 +130,6 @@ func (m *MOpenSSLProbe) Init(ctx context.Context, logger *log.Logger, conf confi
 	m.startTime = uint64(startTime)
 	m.bootTime = uint64(bootTime)
 
-	m.tcPackets = make([]*TcPacket, 0, 1024)
 	m.tcPacketLocker = &sync.Mutex{}
 	m.masterKeyBuffer = bytes.NewBuffer([]byte{})
 
@@ -231,18 +231,6 @@ func (m *MOpenSSLProbe) start() error {
 }
 
 func (m *MOpenSSLProbe) Close() error {
-	if m.eBPFProgramType == TlsCaptureModelTypePcap {
-		m.logger.Printf("%s\tsaving pcapng file %s\n", m.Name(), m.pcapngFilename)
-		i, err := m.savePcapng()
-		if err != nil {
-			m.logger.Printf("%s\tsave pcanNP failed, error:%v. \n", m.Name(), err)
-		}
-		if i == 0 {
-			m.logger.Printf("nothing captured, please check your network interface, see \"ecapture tls -h\" for more information.")
-		} else {
-			m.logger.Printf("%s\t save %d packets into pcapng file.\n", m.Name(), i)
-		}
-	}
 
 	m.logger.Printf("%s\tclose. \n", m.Name())
 	if err := m.bpfManager.Stop(manager.CleanAll); err != nil {
@@ -411,17 +399,17 @@ func (m *MOpenSSLProbe) saveMasterSecret(secretEvent *event.MasterSecretEvent) {
 	case TlsCaptureModelTypePcap:
 		e := m.savePcapngSslKeyLog(b.Bytes())
 		if e != nil {
-			m.logger.Fatalf("%s: save CLIENT_RANDOM to pcapng error:%s", v.String(), e.Error())
+			m.logger.Fatalf("%s\t%s: save CLIENT_RANDOM to pcapng error:%s", m.Name(), v.String(), e.Error())
 			return
 		}
-		m.logger.Printf("%s: save CLIENT_RANDOM %02x to file success, %d bytes", v.String(), secretEvent.ClientRandom, b.Len())
+		m.logger.Printf("%s\t%s: save CLIENT_RANDOM %02x to file success, %d bytes", m.Name(), v.String(), secretEvent.ClientRandom, b.Len())
 	case TlsCaptureModelTypeKeylog:
 		l, e := m.keylogger.WriteString(b.String())
 		if e != nil {
-			m.logger.Fatalf("%s: save CLIENT_RANDOM to file error:%s", v.String(), e.Error())
+			m.logger.Fatalf("%s\t%s: save CLIENT_RANDOM to file error:%s", m.Name(), v.String(), e.Error())
 			return
 		}
-		m.logger.Printf("%s: save CLIENT_RANDOM %02x to file success, %d bytes", v.String(), secretEvent.ClientRandom, l)
+		m.logger.Printf("%s\t%s: save CLIENT_RANDOM %02x to file success, %d bytes", m.Name(), v.String(), secretEvent.ClientRandom, l)
 	default:
 	}
 }
@@ -445,7 +433,7 @@ func (m *MOpenSSLProbe) saveMasterSecretBSSL(secretEvent *event.MasterSecretBSSL
 		var length = int(secretEvent.HashLen)
 		if length > event.MasterSecretMaxLen {
 			length = event.MasterSecretMaxLen
-			m.logger.Println("master secret length is too long, truncate to 48 bytes, but it may cause keylog file error")
+			m.logger.Printf("%s\tmaster secret length is too long, truncate to 48 bytes, but it may cause keylog file error\n", m.Name())
 		}
 		b = bytes.NewBufferString(fmt.Sprintf("%s %02x %02x\n", hkdf.KeyLogLabelTLS12, secretEvent.ClientRandom, secretEvent.Secret[:length]))
 		m.masterKeys[k] = true
@@ -455,7 +443,7 @@ func (m *MOpenSSLProbe) saveMasterSecretBSSL(secretEvent *event.MasterSecretBSSL
 		var length int
 		length = int(secretEvent.HashLen)
 		if length > event.EvpMaxMdSize {
-			m.logger.Println("master secret length is too long, truncate to 64 bytes, but it may cause keylog file error")
+			m.logger.Printf("%s\tmaster secret length is too long, truncate to 64 bytes, but it may cause keylog file error\n", m.Name())
 			length = event.EvpMaxMdSize
 		}
 		// 判断 密钥是否为空
@@ -478,17 +466,17 @@ func (m *MOpenSSLProbe) saveMasterSecretBSSL(secretEvent *event.MasterSecretBSSL
 	case TlsCaptureModelTypePcap:
 		e := m.savePcapngSslKeyLog(b.Bytes())
 		if e != nil {
-			m.logger.Fatalf("%s: save CLIENT_RANDOM to pcapng error:%s", v.String(), e.Error())
+			m.logger.Fatalf("%s\t%s: save CLIENT_RANDOM to pcapng error:%s", m.Name(), v.String(), e.Error())
 			return
 		}
-		m.logger.Printf("%s: save CLIENT_RANDOM %02x to file success, %d bytes", v.String(), secretEvent.ClientRandom, b.Len())
+		m.logger.Printf("%s\t%s: save CLIENT_RANDOM %02x to file success, %d bytes", m.Name(), v.String(), secretEvent.ClientRandom, b.Len())
 	case TlsCaptureModelTypeKeylog:
 		l, e := m.keylogger.WriteString(b.String())
 		if e != nil {
-			m.logger.Fatalf("%s: save CLIENT_RANDOM to file error:%s", v.String(), e.Error())
+			m.logger.Fatalf("%s\t%s: save CLIENT_RANDOM to file error:%s", m.Name(), v.String(), e.Error())
 			return
 		}
-		m.logger.Printf("%s: save CLIENT_RANDOM %02x to file success, %d bytes", v.String(), secretEvent.ClientRandom, l)
+		m.logger.Printf("%s\t%s: save CLIENT_RANDOM %02x to file success, %d bytes", m.Name(), v.String(), secretEvent.ClientRandom, l)
 	default:
 	}
 }
