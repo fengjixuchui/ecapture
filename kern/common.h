@@ -41,6 +41,9 @@
 #define SA_DATA_LEN 14
 #define BASH_ERRNO_DEFAULT 128
 
+#define BASH_EVENT_TYPE_READLINE 0
+#define BASH_EVENT_TYPE_RETVAL 1
+#define BASH_EVENT_TYPE_EXIT_OR_EXEC 2
 ///////// for TC & XDP ebpf programs in tc.h
 #define TC_ACT_OK 0
 #define ETH_P_IP 0x0800 /* Internet Protocol packet        */
@@ -48,8 +51,6 @@
 
 // .rodata section bug via : https://github.com/gojue/ecapture/issues/39
 #ifndef KERNEL_LESS_5_2
-// alawyse, we used it in tc.h
-const volatile u64 target_port = 443;
 
 // Optional Target PID and UID
 const volatile u64 target_pid = 0;
@@ -57,6 +58,18 @@ const volatile u64 target_uid = 0;
 const volatile u64 target_errno = BASH_ERRNO_DEFAULT;
 #else
 #endif
+
+
+// fix  4.19.91-27.7.al7.x86_64/source/include/linux/kernel.h:140:9: warning: 'roundup' macro redefined
+#ifndef roundup
+#define roundup(x, y) (					\
+{							\
+	typeof(y) __y = y;				\
+	(((x) + (__y - 1)) / __y) * __y;		\
+}							\
+)
+#endif
+
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 __u32 _version SEC("version") = 0xFFFFFFFE;

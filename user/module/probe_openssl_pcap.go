@@ -15,16 +15,19 @@
 package module
 
 import (
-	"ecapture/user/config"
-	"ecapture/user/event"
 	"errors"
 	"fmt"
+	"math"
+	"net"
+	"path"
+	"strings"
+
+	"ecapture/user/config"
+	"ecapture/user/event"
+
 	"github.com/cilium/ebpf"
 	manager "github.com/gojue/ebpfmanager"
 	"golang.org/x/sys/unix"
-	"math"
-	"net"
-	"strings"
 )
 
 type NetEventMetadata struct {
@@ -40,7 +43,7 @@ func (m *MOpenSSLProbe) setupManagersPcap() error {
 	m.ifName = ifname
 	interf, err := net.InterfaceByName(m.ifName)
 	if err != nil {
-		return err
+		return fmt.Errorf("InterfaceByName: %s , failed: %v", m.ifName, err)
 	}
 
 	// loopback devices are special, some tc probes should be skipped
@@ -54,26 +57,28 @@ func (m *MOpenSSLProbe) setupManagersPcap() error {
 	sslVersion = m.conf.(*config.OpensslConfig).SslVersion
 	sslVersion = strings.ToLower(sslVersion)
 	switch m.conf.(*config.OpensslConfig).ElfType {
-	//case config.ElfTypeBin:
+	// case config.ElfTypeBin:
 	//	binaryPath = m.conf.(*config.OpensslConfig).Curlpath
 	case config.ElfTypeSo:
 		binaryPath = m.conf.(*config.OpensslConfig).Openssl
-		err := m.getSslBpfFile(binaryPath, sslVersion)
+		err = m.getSslBpfFile(binaryPath, sslVersion)
 		if err != nil {
 			return err
 		}
 	default:
-		//如果没找到
-		binaryPath = "/lib/x86_64-linux-gnu/libssl.so.1.1"
-		err := m.getSslBpfFile(binaryPath, sslVersion)
+		// 如果没找到
+		binaryPath = path.Join(defaultSoPath, "libssl.so.1.1")
+		err = m.getSslBpfFile(binaryPath, sslVersion)
 		if err != nil {
 			return err
 		}
 	}
 
-	m.logger.Printf("%s\tHOOK type:%d, binrayPath:%s\n", m.Name(), m.conf.(*config.OpensslConfig).ElfType, binaryPath)
-	m.logger.Printf("%s\tIfname:%s, Ifindex:%d,  Port:%d, Pcapng filepath:%s\n", m.Name(), m.ifName, m.ifIdex, m.conf.(*config.OpensslConfig).Port, m.pcapngFilename)
-	m.logger.Printf("%s\tHook masterKey function:%s\n", m.Name(), m.masterHookFunc)
+	pcapFilter := m.conf.(*config.OpensslConfig).PcapFilter
+	m.logger.Printf("%s\tHOOK type: %d, binrayPath: %s\n", m.Name(), m.conf.(*config.OpensslConfig).ElfType, binaryPath)
+	m.logger.Printf("%s\tPcapFilter: %s\n", m.Name(), pcapFilter)
+	m.logger.Printf("%s\tIfname: %s, Ifindex: %d\n", m.Name(), m.ifName, m.ifIdex)
+	m.logger.Printf("%s\tHook masterKey function: %s\n", m.Name(), m.masterHookFuncs)
 
 	// create pcapng writer
 	netIfs, err := net.Interfaces()
@@ -104,27 +109,17 @@ func (m *MOpenSSLProbe) setupManagersPcap() error {
 			//	}
 			{
 				Section:          "classifier/egress",
-				EbpfFuncName:     "egress_cls_func",
+				EbpfFuncName:     tcFuncNameEgress,
 				Ifname:           m.ifName,
 				NetworkDirection: manager.Egress,
 			},
 			{
 				Section:          "classifier/ingress",
-				EbpfFuncName:     "ingress_cls_func",
+				EbpfFuncName:     tcFuncNameIngress,
 				Ifname:           m.ifName,
 				NetworkDirection: manager.Ingress,
 			},
 			// --------------------------------------------------
-
-			// openssl masterkey
-			{
-				Section:          "uprobe/SSL_write_key",
-				EbpfFuncName:     "probe_ssl_master_key",
-				AttachToFuncName: m.masterHookFunc, // SSL_do_handshake or SSL_write
-				BinaryPath:       binaryPath,
-				UID:              "uprobe_ssl_master_key",
-			},
-			//
 			{
 				EbpfFuncName:     "tcp_sendmsg",
 				Section:          "kprobe/tcp_sendmsg",
@@ -142,6 +137,15 @@ func (m *MOpenSSLProbe) setupManagersPcap() error {
 		},
 	}
 
+	for _, masterFunc := range m.masterHookFuncs {
+		m.bpfManager.Probes = append(m.bpfManager.Probes, &manager.Probe{
+			Section:          "uprobe/SSL_write_key",
+			EbpfFuncName:     "probe_ssl_master_key",
+			AttachToFuncName: masterFunc,
+			BinaryPath:       binaryPath,
+			UID:              fmt.Sprintf("uprobe_smk_%s", masterFunc),
+		})
+	}
 	m.bpfManagerOptions = manager.Options{
 		DefaultKProbeMaxActive: 512,
 
@@ -165,7 +169,7 @@ func (m *MOpenSSLProbe) setupManagersPcap() error {
 }
 
 func (m *MOpenSSLProbe) initDecodeFunPcap() error {
-	//SkbEventsMap 与解码函数映射
+	// SkbEventsMap 与解码函数映射
 	SkbEventsMap, found, err := m.bpfManager.GetMap("skb_events")
 	if err != nil {
 		return err
@@ -175,7 +179,7 @@ func (m *MOpenSSLProbe) initDecodeFunPcap() error {
 	}
 	m.eventMaps = append(m.eventMaps, SkbEventsMap)
 	sslEvent := &event.TcSkbEvent{}
-	//sslEvent.SetModule(m)
+	// sslEvent.SetModule(m)
 	m.eventFuncMaps[SkbEventsMap] = sslEvent
 
 	MasterkeyEventsMap, found, err := m.bpfManager.GetMap("mastersecret_events")
@@ -195,7 +199,7 @@ func (m *MOpenSSLProbe) initDecodeFunPcap() error {
 		masterkeyEvent = &event.MasterSecretEvent{}
 	}
 
-	//masterkeyEvent.SetModule(m)
+	// masterkeyEvent.SetModule(m)
 	m.eventFuncMaps[MasterkeyEventsMap] = masterkeyEvent
 	return nil
 }

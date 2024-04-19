@@ -18,10 +18,12 @@ import (
 	"ecapture/user/config"
 	"ecapture/user/event"
 	"errors"
+	"fmt"
 	"github.com/cilium/ebpf"
 	manager "github.com/gojue/ebpfmanager"
 	"golang.org/x/sys/unix"
 	"math"
+	"path"
 	"strings"
 )
 
@@ -41,7 +43,7 @@ func (m *MOpenSSLProbe) setupManagersKeylog() error {
 		}
 	default:
 		//如果没找到
-		binaryPath = "/lib/x86_64-linux-gnu/libssl.so.1.1"
+		binaryPath = path.Join(defaultSoPath, "libssl.so.1.1")
 		err := m.getSslBpfFile(binaryPath, sslVersion)
 		if err != nil {
 			return err
@@ -49,25 +51,24 @@ func (m *MOpenSSLProbe) setupManagersKeylog() error {
 	}
 
 	m.logger.Printf("%s\tHOOK type:%d, binrayPath:%s\n", m.Name(), m.conf.(*config.OpensslConfig).ElfType, binaryPath)
-	m.logger.Printf("%s\tHook masterKey function:%s\n", m.Name(), m.masterHookFunc)
+	m.logger.Printf("%s\tHook masterKey function:%s\n", m.Name(), m.masterHookFuncs)
 
 	m.bpfManager = &manager.Manager{
-		Probes: []*manager.Probe{
-			// openssl masterkey
-			{
-				Section:          "uprobe/SSL_write_key",
-				EbpfFuncName:     "probe_ssl_master_key",
-				AttachToFuncName: m.masterHookFunc, // SSL_do_handshake or SSL_write
-				BinaryPath:       binaryPath,
-				UID:              "uprobe_ssl_master_key",
-			},
-		},
-
 		Maps: []*manager.Map{
 			{
 				Name: "mastersecret_events",
 			},
 		},
+	}
+	m.bpfManager.Probes = make([]*manager.Probe, 0)
+	for _, masterFunc := range m.masterHookFuncs {
+		m.bpfManager.Probes = append(m.bpfManager.Probes, &manager.Probe{
+			Section:          "uprobe/SSL_write_key",
+			EbpfFuncName:     "probe_ssl_master_key",
+			AttachToFuncName: masterFunc,
+			BinaryPath:       binaryPath,
+			UID:              fmt.Sprintf("uprobe_smk_%s", masterFunc),
+		})
 	}
 
 	m.bpfManagerOptions = manager.Options{

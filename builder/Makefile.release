@@ -4,7 +4,7 @@
 
 .PHONY: all
 all: help
-release: snapshot build_deb snapshot_android publish
+release: snapshot build_deb snapshot_android snapshot_android_nocore publish
 
 #
 # make
@@ -50,7 +50,9 @@ endif
 
 OUTPUT_DIR = ./bin
 TAR_DIR = ecapture-$(SNAPSHOT_VERSION)-linux-$(UNAME_M)
+TAR_DIR_NOCORE = ecapture-$(SNAPSHOT_VERSION)-linux-nocore
 TAR_DIR_ANDROID = ecapture-$(SNAPSHOT_VERSION)-android-$(UNAME_M)
+TAR_DIR_ANDROID_NOCORE = ecapture-$(SNAPSHOT_VERSION)-android-$(UNAME_M)-nocore
 
 # from CLI args.
 RELEASE_NOTES ?= $(OUTPUT_DIR)/release_notes.txt
@@ -61,7 +63,7 @@ PACKAGE_DESC = eCapture(旁观者): Capture SSL/TLS text content without a CA ce
 PACKAGE_HOMEPAGE = https://ecapture.cc
 PACKAGE_MAINTAINER = CFC4N <cfc4n.cs@gmail.com>
 PACKAGE_VERSION ?= $(shell echo $(SNAPSHOT_VERSION) | $(CMD_SED) 's/v//g' )
-OUT_DEB_FILE = $(OUTPUT_DIR)/$(PACKAGE_NAME)_linux_$(SNAPSHOT_VERSION)_$(ARCH).deb
+OUT_DEB_FILE = $(OUTPUT_DIR)/$(PACKAGE_NAME)_$(SNAPSHOT_VERSION)_linux_$(ARCH).deb
 
 # 构建目录
 BUILD_DIR = build
@@ -71,7 +73,9 @@ BUILD_DIR = build
 #
 
 OUT_ARCHIVE := $(OUTPUT_DIR)/$(TAR_DIR).tar.gz
-OUT_ARCHIVE_ANDROID := $(OUTPUT_DIR)/$(TAR_DIR_ANDROID)-nocore.tar.gz
+OUT_ARCHIVE_NOCORE := $(OUTPUT_DIR)/$(TAR_DIR_NOCORE).tar.gz
+OUT_ARCHIVE_ANDROID := $(OUTPUT_DIR)/$(TAR_DIR_ANDROID).tar.gz
+OUT_ARCHIVE_ANDROID_NOCORE := $(OUTPUT_DIR)/$(TAR_DIR_ANDROID_NOCORE).tar.gz
 OUT_CHECKSUMS := $(OUTPUT_DIR)/checksum-$(SNAPSHOT_VERSION).txt
 
 
@@ -163,6 +167,7 @@ $(OUTPUT_DIR):
 
 
 
+# snapshot Linux non-CO-RE version, and non-CO-RE only on Linux OS.
 .PHONY: snapshot
 snapshot: \
 	$(OUTPUT_DIR) \
@@ -182,9 +187,7 @@ snapshot: \
 	$(CMD_CP) README_CN.md $(TAR_DIR)/README_CN.md
 	$(CMD_CP) $(OUTPUT_DIR)/ecapture $(TAR_DIR)/ecapture
 	$(CMD_TAR)  -czf $(OUT_ARCHIVE) $(TAR_DIR)
-	cd $(OUTPUT_DIR)
-	$(CMD_CHECKSUM) $(TAR_DIR).tar.gz > ./../$(OUT_CHECKSUMS)
-	cd ../
+	$(CMD_CHECKSUM) $(OUT_ARCHIVE) | $(CMD_SED) 's/.\/bin\///g' > $(OUT_CHECKSUMS)
 
 .PHONY: snapshot_android
 snapshot_android: \
@@ -196,7 +199,7 @@ snapshot_android: \
 
 	# build binaries
 	$(MAKE) clean
-	ANDROID=1 $(MAKE) nocore RELEASE_TAG=$(SNAPSHOT_VERSION)
+	ANDROID=1 $(MAKE) RELEASE_TAG=$(SNAPSHOT_VERSION)
 	# create the tar ball and checksum files
 	$(CMD_MKDIR) -p $(TAR_DIR_ANDROID)
 	$(CMD_CP) LICENSE $(TAR_DIR_ANDROID)/LICENSE
@@ -205,22 +208,42 @@ snapshot_android: \
 	$(CMD_CP) README_CN.md $(TAR_DIR_ANDROID)/README_CN.md
 	$(CMD_CP) $(OUTPUT_DIR)/ecapture $(TAR_DIR_ANDROID)/ecapture
 	$(CMD_TAR)  -czf $(OUT_ARCHIVE_ANDROID) $(TAR_DIR_ANDROID)
-	cd $(OUTPUT_DIR)
-	$(CMD_CHECKSUM) $(TAR_DIR_ANDROID).tar.gz >> ./../$(OUT_CHECKSUMS)
-	cd ../
+	$(CMD_CHECKSUM) $(OUT_ARCHIVE_ANDROID) | $(CMD_SED) 's/.\/bin\///g' >> $(OUT_CHECKSUMS)
+
+.PHONY: snapshot_android_nocore
+snapshot_android_nocore: \
+	$(OUTPUT_DIR) \
+	| .check_tree \
+	.check_$(CMD_TAR) \
+	.check_$(CMD_CHECKSUM) \
+	.check_$(CMD_GITHUB)
+
+	# build binaries
+	$(MAKE) clean
+	ANDROID=1 $(MAKE) nocore RELEASE_TAG=$(SNAPSHOT_VERSION)
+	# create the tar ball and checksum files
+	$(CMD_MKDIR) -p $(TAR_DIR_ANDROID_NOCORE)
+	$(CMD_CP) LICENSE $(TAR_DIR_ANDROID_NOCORE)/LICENSE
+	$(CMD_CP) CHANGELOG.md $(TAR_DIR_ANDROID_NOCORE)/CHANGELOG.md
+	$(CMD_CP) README.md $(TAR_DIR_ANDROID_NOCORE)/README.md
+	$(CMD_CP) README_CN.md $(TAR_DIR_ANDROID_NOCORE)/README_CN.md
+	$(CMD_CP) $(OUTPUT_DIR)/ecapture $(TAR_DIR_ANDROID_NOCORE)/ecapture
+	$(CMD_TAR)  -czf $(OUT_ARCHIVE_ANDROID_NOCORE) $(TAR_DIR_ANDROID_NOCORE)
+	$(CMD_CHECKSUM) $(OUT_ARCHIVE_ANDROID_NOCORE) | $(CMD_SED) 's/.\/bin\///g' >> $(OUT_CHECKSUMS)
 
 .PHONY: publish
 publish: \
 	$(OUTPUT_DIR) \
 	$(OUT_ARCHIVE) \
 	$(OUT_ARCHIVE_ANDROID) \
+	$(OUT_ARCHIVE_ANDROID_NOCORE) \
 	$(OUT_CHECKSUMS) \
 	$(OUT_DEB_FILE) \
 	| .check_tree \
 	.check_$(CMD_GITHUB)
 #
 	# release it!
-	$(CMD_GITHUB) release create $(SNAPSHOT_VERSION) $(OUT_ARCHIVE) $(OUT_ARCHIVE_ANDROID) $(OUT_DEB_FILE) $(OUT_CHECKSUMS) --title "eCapture $(SNAPSHOT_VERSION)"  --notes-file $(RELEASE_NOTES)
+	$(CMD_GITHUB) release create $(SNAPSHOT_VERSION) $(OUT_ARCHIVE) $(OUT_ARCHIVE_ANDROID) $(OUT_ARCHIVE_ANDROID_NOCORE) $(OUT_DEB_FILE) $(OUT_CHECKSUMS) --title "eCapture $(SNAPSHOT_VERSION)"  --notes-file $(RELEASE_NOTES)
 
 .PHONY: clean
 clean:
@@ -230,12 +253,12 @@ clean:
 .PHONY: deb
 deb: snapshot build_deb
 
-# 用于构建DEB包的目标
+# 用于构建DEB包的目标, non-CO-RE default.
 build_deb:
 	# 创建软件包目录结构
 	$(CMD_RM) -rf $(BUILD_DIR)
 	$(CMD_MKDIR) -p $(BUILD_DIR)/DEBIAN
-	$(CMD_MKDIR) -p $(BUILD_DIR)/usr/local/bin  # 这里是例子，请根据实际情况更改
+	$(CMD_MKDIR) -p $(BUILD_DIR)/usr/local/bin
     # 复制程序文件到软件包目录
 	$(CMD_CP) bin/ecapture $(BUILD_DIR)/usr/local/bin/ecapture  # 将二进制文件复制到目标位置
     # 创建控制文件 (DEBIAN/control)
@@ -248,3 +271,4 @@ build_deb:
 	echo "Homepage: $(PACKAGE_HOMEPAGE)" >> $(BUILD_DIR)/DEBIAN/control
     # 构建DEB包
 	$(CMD_DPKG-DEB) --build $(BUILD_DIR) $(OUT_DEB_FILE)
+	$(CMD_CHECKSUM) $(OUT_DEB_FILE) | $(CMD_SED) 's/.\/bin\///g' >> $(OUT_CHECKSUMS)

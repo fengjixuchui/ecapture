@@ -15,6 +15,25 @@
 > Windows、macOS には対応していません。
 ----
 
+
+<!-- MarkdownTOC autolink="true" -->
+
+- [eCapture ユーザーマニュアル](#ecapture-ユーザーマニュアル)
+- [eCapture の仕組み](#ecapture-の仕組み)
+- [eCapture アーキテクチャ](#ecapture-アーキテクチャ)
+- [はじめに](#はじめに)
+- [eBPF とは](#ebpf-とは)
+- [コンパイル方法](#コンパイル方法)
+- [コントリビュート](#コントリビュート)
+
+<!-- /MarkdownTOC -->
+----
+
+
+# eCapture ユーザーマニュアル
+
+![](./images/ecapture-help-v0.7.4.png)
+
 #  eCapture の仕組み
 
 ![](./images/how-ecapture-works.png)
@@ -27,9 +46,6 @@
 # eCapture アーキテクチャ
 ![](./images/ecapture-architecture.png)
 
-# eCapture ユーザーマニュアル
-
-[![eCapture User Manual](./images/ecapture-user-manual.png)](https://www.youtube.com/watch?v=CoDIjEQCvvA "eCapture User Manual")
 
 # はじめに
 
@@ -74,7 +90,7 @@ openssl模块支持3中捕获模式
 你可以通过`-m pcap`或`-m pcapng`参数来指定，需要配合`--pcapfile`、`-i`参数使用。其中`--pcapfile`参数的默认值为`ecapture_openssl.pcapng`。
 ```shell
 ./ecapture tls -m pcap -i eth0 --pcapfile=ecapture.pcapng --port=443
-``` 
+```
 将捕获的明文数据包保存为pcapng文件，可以使用`Wireshark`打开查看。
 
 ### keylog 模式
@@ -104,37 +120,18 @@ cfc4n@vm-server:~$# cat /boot/config-`uname -r` | grep CONFIG_DEBUG_INFO_BTF
 CONFIG_DEBUG_INFO_BTF=y
 ```
 
-### tls コマンド
-
-TLS テキストコンテキストをキャプチャします。
-ステップ 1:
+Step 1:
 ```shell
-./ecapture tls --hex
+./ecapture gotls --elfpath=/home/cfc4n/go_https_client --hex
 ```
 
-ステップ 2:
+Step 2:
 ```shell
-curl https://github.com
+/home/cfc4n/go_https_client
 ```
-
-### libssl & boringssl
+### more help
 ```shell
-# インストールされた libssl に対して、libssl.so.52 は動的な ssl lib です
-vm@vm-server:~$ ldd /usr/local/bin/openssl
-	linux-vdso.so.1 (0x00007ffc82985000)
-	libssl.so.52 => /usr/local/lib/libssl.so.52 (0x00007f1730f9f000)
-	libcrypto.so.49 => /usr/local/lib/libcrypto.so.49 (0x00007f1730d8a000)
-	libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f1730b62000)
-	/lib64/ld-linux-x86-64.so.2 (0x00007f17310b2000)
-
-# libssl を使って libssl.so のパスを設定
-vm@vm-server:~$ sudo ./ecapture tls --libssl="/usr/local/lib/libssl.so.52" --hex
-
-# 別の端末で実行し、何らかの文字列を入力し、ecapture の出力を確認
-vm@vm-server:~$ /usr/local/bin/openssl s_client -connect github.com:443
-
-# インストールされた boringssl の場合、使い方は同じです
-/path/to/bin/bssl s_client -connect github.com:443
+./ecapture gotls -h
 ```
 
 ### bash コマンド
@@ -173,7 +170,7 @@ Linux カーネル: >= 4.18.
 
 **リポジトリのコードをクローンし、コンパイルしてください**
 ```shell
-git clone git@github.com:gojue/ecapture.git
+git clone --recurse-submodules git@github.com:gojue/ecapture.git
 cd ecapture
 make
 bin/ecapture
@@ -186,6 +183,11 @@ make nocore
 bin/ecapture --help
 ```
 
+## クロスコンパイル（eBPF CO-REモードのみ）
+Ubuntuの `amd64` システムで `arm64` の成果物をビルドするには、`CROSS_ARCH`環境変数を設定してクロスコンパイルを実行できます。
+```shell
+CROSS_ARCH=arm64 make
+```
 ## Stargazers over time
 
 [![Stargazers over time](https://starchart.cc/gojue/ecapture.svg)](https://starchart.cc/gojue/ecapture)

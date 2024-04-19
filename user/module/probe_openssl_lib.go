@@ -28,6 +28,8 @@ const (
 	LinuxDefauleFilename_1_1_0 = "linux_default_1_1_0"
 	LinuxDefauleFilename_1_1_1 = "linux_default_1_1_1"
 	LinuxDefauleFilename_3_0   = "linux_default_3_0"
+	LinuxDefauleFilename_3_1   = "linux_default_3_0"
+	LinuxDefauleFilename_3_2_0 = "linux_default_3_2"
 	AndroidDefauleFilename     = "android_default"
 
 	OpenSslVersionLen = 30 // openssl version string length
@@ -37,7 +39,9 @@ const (
 	MaxSupportedOpenSSL102Version = 'u'
 	MaxSupportedOpenSSL110Version = 'l'
 	MaxSupportedOpenSSL111Version = 'u'
-	MaxSupportedOpenSSL30Version  = '9'
+	MaxSupportedOpenSSL30Version  = 12
+	MaxSupportedOpenSSL31Version  = 4
+	MaxSupportedOpenSSL32Version  = 0
 )
 
 // initOpensslOffset initial BpfMap
@@ -52,8 +56,11 @@ func (m *MOpenSSLProbe) initOpensslOffset() {
 		// openssl 1.1.1*
 		LinuxDefauleFilename_1_1_1: "openssl_1_1_1j_kern.o",
 
-		// openssl 3.0.*
+		// openssl 3.0.* and openssl 3.1.*
 		LinuxDefauleFilename_3_0: "openssl_3_0_0_kern.o",
+
+		// openssl 3.2.*
+		LinuxDefauleFilename_3_2_0: "openssl_3_2_0_kern.o",
 
 		// boringssl
 		"boringssl 1.1.1":      "boringssl_a_13_kern.o",
@@ -80,9 +87,19 @@ func (m *MOpenSSLProbe) initOpensslOffset() {
 		m.sslVersionBpfMap["openssl 1.1.1"+string(ch)] = "openssl_1_1_1j_kern.o"
 	}
 
-	// openssl 3.0.0 - 3.0.7
-	for ch := '0'; ch <= MaxSupportedOpenSSL30Version; ch++ {
-		m.sslVersionBpfMap["openssl 3.0."+string(ch)] = "openssl_3_0_0_kern.o"
+	// openssl 3.0.0 - 3.0.12
+	for ch := 0; ch <= MaxSupportedOpenSSL30Version; ch++ {
+		m.sslVersionBpfMap[fmt.Sprintf("openssl 3.0.%d", ch)] = "openssl_3_0_0_kern.o"
+	}
+
+	// openssl 3.1.0 - 3.1.4
+	for ch := 0; ch <= MaxSupportedOpenSSL31Version; ch++ {
+		m.sslVersionBpfMap[fmt.Sprintf("openssl 3.1.%d", ch)] = "openssl_3_0_0_kern.o"
+	}
+
+	// openssl 3.2.0
+	for ch := 0; ch <= MaxSupportedOpenSSL32Version; ch++ {
+		m.sslVersionBpfMap[fmt.Sprintf("openssl 3.2.%d", ch)] = "openssl_3_2_0_kern.o"
 	}
 
 	// openssl 1.1.0a - 1.1.0l
@@ -117,7 +134,7 @@ func (m *MOpenSSLProbe) detectOpenssl(soPath string) error {
 	s := r.Section(".rodata")
 	if s == nil {
 		// not found
-		return nil
+		return fmt.Errorf("detect openssl version failed, cant read .rodata section from %s", soPath)
 	}
 
 	sectionOffset := int64(s.Offset)
@@ -138,6 +155,7 @@ func (m *MOpenSSLProbe) detectOpenssl(soPath string) error {
 	versionKey := ""
 
 	// e.g : OpenSSL 1.1.1j  16 Feb 2021
+	// OpenSSL 3.2.0 23 Nov 2023
 	rex, err := regexp.Compile(`(OpenSSL\s\d\.\d\.[0-9a-z]+)`)
 	if err != nil {
 		return nil
@@ -185,6 +203,7 @@ func (m *MOpenSSLProbe) detectOpenssl(soPath string) error {
 	var found bool
 	if versionKey != "" {
 		versionKeyLower := strings.ToLower(versionKey)
+		m.conf.(*config.OpensslConfig).SslVersion = versionKeyLower
 		m.logger.Printf("%s\torigin version:%s, as key:%s", m.Name(), versionKey, versionKeyLower)
 		// find the sslVersion bpfFile from sslVersionBpfMap
 		bpfFile, found = m.sslVersionBpfMap[versionKeyLower]

@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"ecapture/user/event"
 	"encoding/hex"
+	"sync/atomic"
 	"time"
 )
 
@@ -30,6 +31,9 @@ type IWorker interface {
 	// 收包
 	Write(event.IEventStruct) error
 	GetUUID() string
+	IfUsed() bool
+	Get()
+	Put()
 }
 
 const (
@@ -49,6 +53,7 @@ type eventWorker struct {
 	processor   *EventProcessor
 	parser      IParser
 	payload     *bytes.Buffer
+	used        atomic.Bool
 }
 
 func NewEventWorker(uuid string, processor *EventProcessor) IWorker {
@@ -127,12 +132,46 @@ func (ew *eventWorker) parserEvents() []byte {
 func (ew *eventWorker) Run() {
 	for {
 		select {
-		case _ = <-ew.ticker.C:
+		case <-ew.ticker.C:
 			// 输出包
 			if ew.tickerCount > MaxTickerCount {
 				//ew.processor.GetLogger().Printf("eventWorker TickerCount > %d, event closed.", MaxTickerCount)
-				ew.Close()
-				return
+				ew.processor.delWorkerByUUID(ew)
+
+				/*
+					When returned from delWorkerByUUID(), there are two possiblities:
+					1) no routine can touch it.
+					2) one routine can still touch ew because getWorkerByUUID()
+					*happen before* delWorkerByUUID()
+
+					When no routine can touch it (i.e.,ew.IfUsed == false),
+					we just drain the ew.incoming and return.
+
+					When one routine can touch it (i.e.,ew.IfUsed == true), we ensure
+					that we only return after the routine can not touch it
+					(i.e.,ew.IfUsed == false). At this point, we can ensure that no
+					other routine will touch it and send events through the ew.incoming.
+					So, we return.
+
+					Because eworker has been deleted from workqueue after delWorkerByUUID()
+					(ordered by a workqueue lock), at this point, we can ensure that
+					no ew will not be touched even **in the future**. So the return is
+					safe.
+
+				*/
+				for {
+					select {
+					case e := <-ew.incoming:
+						ew.writeEvent(e)
+					default:
+						if ew.IfUsed() {
+							time.Sleep(10 * time.Millisecond)
+							continue
+						}
+						ew.Close()
+						return
+					}
+				}
 			}
 			ew.tickerCount++
 		case e := <-ew.incoming:
@@ -149,5 +188,22 @@ func (ew *eventWorker) Close() {
 	ew.ticker.Stop()
 	ew.Display()
 	ew.tickerCount = 0
-	ew.processor.delWorkerByUUID(ew)
+}
+
+func (ew *eventWorker) Get() {
+	if !ew.used.CompareAndSwap(false, true) {
+		panic("unexpected behavior and incorrect usage for eventWorker")
+	}
+}
+
+func (ew *eventWorker) Put() {
+	if !ew.used.CompareAndSwap(true, false) {
+		panic("unexpected behavior and incorrect usage for eventWorker")
+	}
+
+}
+
+func (ew *eventWorker) IfUsed() bool {
+
+	return ew.used.Load()
 }

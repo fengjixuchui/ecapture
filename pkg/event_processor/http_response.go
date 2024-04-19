@@ -97,11 +97,10 @@ func (hr *HTTPResponse) Write(b []byte) (int, error) {
 func (hr *HTTPResponse) detect(payload []byte) error {
 	rd := bytes.NewReader(payload)
 	buf := bufio.NewReader(rd)
-	res, err := http.ReadResponse(buf, nil)
+	_, err := http.ReadResponse(buf, nil)
 	if err != nil {
 		return err
 	}
-	hr.response = res
 	return nil
 }
 
@@ -126,9 +125,15 @@ func (hr *HTTPResponse) Display() []byte {
 			log.Println(err)
 			break
 		}
+		gbuf, err := io.ReadAll(reader)
+		if err != nil {
+			log.Println(err)
+			break
+		}
 
+		hr.response.Body = io.NopCloser(bytes.NewReader(gbuf))
 		// gzip uncompressed success
-		hr.response.Body = reader
+		hr.response.ContentLength = int64(len(gbuf))
 		hr.packerType = PacketTypeGzip
 		defer reader.Close()
 	default:

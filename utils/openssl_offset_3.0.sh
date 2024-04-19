@@ -10,10 +10,13 @@ if [[ ! -f "go.mod" ]]; then
   exit 1
 fi
 
+echo "check file exists: ${OPENSSL_DIR}/.git"
 # skip cloning if the header file of the max supported version is already generated
-if [[ ! -f "${OUTPUT_DIR}/openssl_3_0_0_kern.c" ]]; then
+if [[ ! -f "${OPENSSL_DIR}/.git" ]]; then
+  echo "check directory exists: ${OPENSSL_DIR}"
   # skip cloning if the openssl directory already exists
   if [[ ! -d "${OPENSSL_DIR}" ]]; then
+    echo "git clone openssl to ${OPENSSL_DIR}"
     git clone https://github.com/openssl/openssl.git ${OPENSSL_DIR}
   fi
 fi
@@ -32,6 +35,9 @@ function run() {
   sslVerMap["7"]="0"
   sslVerMap["8"]="0"
   sslVerMap["9"]="0"
+  sslVerMap["10"]="0"
+  sslVerMap["11"]="0"
+  sslVerMap["12"]="0"
 
   # shellcheck disable=SC2068
   for ver in ${!sslVerMap[@]}; do
@@ -44,7 +50,7 @@ function run() {
       echo "Skip ${header_file}"
       continue
     fi
-
+    echo "git checkout ${tag}"
     git checkout ${tag}
     echo "Generating ${header_file}"
 
@@ -76,6 +82,7 @@ function run() {
   rm offset.c
 }
 
+# TODO Check if the directory for OpenSSL exists
 pushd ${OPENSSL_DIR}
 (run)
 [[ "$?" != 0 ]] && popd
